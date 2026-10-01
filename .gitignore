@@ -24,6 +24,10 @@ archive/
 参考资料/
 demo_local/
 
+# 上游 FFmpeg 参考环境（源码 / 构建产物 / 便携工具链），以及实验用临时媒体，均不入库
+ffmpeg/
+ffmpeg/temp/
+
 # 编译数据库：Ninja 生成在 build/ 下，构建时由 move_compile_db 目标移动到仓库根（clangd 读根这一份）。
 # 两处都不入库——里面的命令带本机绝对路径。
 compile_commands.json
