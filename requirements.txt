@@ -1,0 +1,13 @@
+# CLV Python 工具链依赖清单
+#
+# 位置：项目根目录；venv 也建在项目根目录（.venv/，不追踪）。
+# 当前 script/ 下的工具脚本只用 Python 标准库，无需安装第三方包。
+#
+# 创建环境：  python -m venv .venv
+# 激活：        .venv\Scripts\activate    (Windows)   或   source .venv/bin/activate (POSIX)
+#
+# 后续若引入工具依赖，在下面按「包名==版本」逐行写明，并同步到 archive 开发日志。
+# 冒烟验证用的临时工程放在 build/ 下，跑完删除，不进本清单。
+
+# 代码格式化：Python 侧脚本一律 black 默认参数（行宽 88），格式化器只装在本项目 .venv/ 里。
+black==26.5.1
