@@ -98,9 +98,10 @@ static void CheckVersion(void)
 {
 	printf("CLV version string : %s\n", CLV_VersionString());
 	printf("CLV version triple : %d.%d.%d\n", CLV_VersionMajor(), CLV_VersionMinor(), CLV_VersionPatch());
+	/* 版本一律与 CLV_VERSION_* 比：写死字面量的话，抬版本号时这份示例会静默判错 */
 	Report(1, "版本字符串", CLV_VERSION_STRING, CLV_VersionString(),
-		   strcmp(CLV_VersionString(), "0.0.1-dev") == 0 && CLV_VersionMajor() == 0 && CLV_VersionMinor() == 0 &&
-			   CLV_VersionPatch() == 1);
+		   strcmp(CLV_VersionString(), CLV_VERSION_STRING) == 0 && CLV_VersionMajor() == CLV_VERSION_MAJOR &&
+			   CLV_VersionMinor() == CLV_VERSION_MINOR && CLV_VersionPatch() == CLV_VERSION_PATCH);
 }
 
 static void CheckLogLevelFilter(void)

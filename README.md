@@ -1,6 +1,6 @@
 # CLV
 
-> 本文是 CLV 仓库的入口说明。当前文档版本：0.1.0-dev · 日期：2026-10-02。
+> 本文是 CLV 仓库的入口说明。当前文档版本：0.2.0-dev · 日期：2026-10-02。
 
 CLV = **C++ Lightweight Video**：自研轻量视频容器 + 自研视频编解码 + 自研字幕格式。
 公开面是 **C ABI**：不透明句柄 + 自由函数 + 错误码枚举。
@@ -111,8 +111,8 @@ Windows 控制台上要正确显示中文，调用方先设码页：`SetConsoleO
 
 | 轨道 | 值 | 出现位置 |
 |---|---|---|
-| 工程版本 | `0.0.1`，字符串 `0.0.1-dev` | `include/CLV_Version.h` 的四个宏（单一来源）、CMake `project(clv VERSION 0.0.1)`、`CLV_VersionString()` 的返回值 |
-| 文档版本 | `0.1.0-dev` | 设计文档与本 README 的抬头声明，不进可执行代码 |
+| 工程版本 | `0.0.2`，字符串 `0.0.2-dev` | `include/CLV_Version.h` 的四个宏（单一来源）、CMake `project(clv VERSION 0.0.2)`、`CLV_VersionString()` 的返回值 |
+| 文档版本 | `0.2.0-dev` | 设计文档与本 README 的抬头声明，不进可执行代码 |
 
 ## 授权
 
