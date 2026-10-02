@@ -11,14 +11,18 @@ add_executable(clv_tests
     main.cpp
     core/test_crc32.cpp
     core/test_varint.cpp
+    core/test_varint_signed.cpp
+    container/test_packet_frames.cpp
+    container/test_container_io.cpp
     api/test_file.cpp
     api/test_logger.cpp
     api/test_memory.cpp
     api/test_version.cpp
+    api/test_container.cpp
 )
 
 target_link_libraries(clv_tests PRIVATE clv GTest::gtest)
-# crc32 / varint 是实现层工具，不经 C ABI 导出，单测直接吃 src/core 头
+# crc32 / varint / container 是实现层件，不经 C ABI 导出，单测直接吃 src 下的头
 target_include_directories(clv_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 clv_apply_target_flags(clv_tests)
 

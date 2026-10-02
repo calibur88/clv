@@ -1,15 +1,10 @@
-/* clv_demo.c
+/* core.c
  *
- * CLV 公开 C ABI 的演示与人工复检入口：只用 include/ 下的五个公开头，纯 C，不碰任何内部实现。
+ * 用法：在 demo_local/ 下跑 ./bin/clv_demo_core，无参数。临时文件建在当前工作目录（路径都写成 ./xxx），跑完即删。
+ * 退出码 0 = 全部自动判定项通过；1 = 有失败；人工判定项（第 2、10 项）不计入退出码。
  *
- * 输出按复检项编号逐条打，每行给出「预期 / 实测 / 判定」；这 10 项与维护者本地保留的复检清单
- * （demo_local/复检清单.md，该目录不入库）一一对应。
- * 退出码 0 = 全部自动判定项通过；1 = 有自动判定项失败；人工判定项（第 2、10 项）不计入退出码。
- *
- * 临时文件建在当前工作目录，跑完即删；只有第 10 项的中文名文件留在原地给人看，README 的清理步骤负责删。
- *
- * 控制台编码由本示例自己设（见 SetupConsoleUtf8）：库的契约是「消息按 UTF-8 字节串直投，怎么显示由应用决定」，
- * 所以这句属应用侧义务，正是示例该演示的地方——不设就是 Windows 控制台按代码页 936 重解读出的那片乱码。
+ * 控制台编码由本示例自己设（见 SetupConsoleUtf8）：库只保证按 UTF-8 字节串直投日志消息，
+ * 不做代码页转换——不设的话 Windows 控制台按代码页 936 重解读，中文提示全成乱码。
  */
 #include "CLV_File.h"
 #include "CLV_Logger.h"
@@ -30,19 +25,19 @@
 /* 演示产物用 spdlog 后端构建时才看得到日志输出；空后端（构建选项 OFF）下第 2 项全程静默。 */
 #define DEMO_LOG_LEVEL_TEXT "CLV_LOG_INFO"
 
-static const char* const kFileWrite = "clv_demo_write.bin";
-static const char* const kFileTruncate = "clv_demo_truncate.bin";
-static const char* const kFileAppend = "clv_demo_append.bin";
-static const char* const kFileSeek = "clv_demo_seek.bin";
-static const char* const kFileMissing = "clv_demo_definitely_not_here.bin";
+static const char* const kFileWrite = "./clv_demo_write.bin";
+static const char* const kFileTruncate = "./clv_demo_truncate.bin";
+static const char* const kFileAppend = "./clv_demo_append.bin";
+static const char* const kFileSeek = "./clv_demo_seek.bin";
+static const char* const kFileMissing = "./clv_demo_definitely_not_here.bin";
 /* 第 10 项：UTF-8 字节序的中文文件名，源码经 /utf-8 编译，故字面量就是 UTF-8 字节 */
-static const char* const kFileUtf8Name = "clv_demo_中文路径.txt";
+static const char* const kFileUtf8Name = "./clv_demo_中文路径.txt";
 
 static int g_failed = 0;
 static int g_manual = 0;
 
-/* 应用侧义务：把控制台输出码页设成 UTF-8，库不代劳（契约见 CLV_Logger.h）。
-   不设的话，本文件里所有中文提示与第 10 项的文件名都会按代码页 936 重解读成乱码。 */
+/* 应用侧义务：库只按 UTF-8 字节串直投日志，不做代码页转换，所以控制台码页要自己设成 CP_UTF8，
+   否则本文件的中文提示与第 10 项的文件名会按代码页 936 重解读成乱码。每个入口都要设一次。 */
 static void SetupConsoleUtf8(void)
 {
 #if defined(_WIN32)
@@ -263,7 +258,7 @@ static void CleanupScratch(void)
 	remove(kFileAppend);
 	remove(kFileSeek);
 	remove(kFileMissing);
-	/* kFileUtf8Name 故意留下给人看，README 的清理步骤删它 */
+	/* kFileUtf8Name 不删：中文文件名本身要留在目录里核对字形 */
 }
 
 int main(void)

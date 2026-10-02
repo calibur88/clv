@@ -12,6 +12,15 @@ set(CLV_SOURCES ${CLV_SOURCES}
     src/core/crc32.cpp
     src/core/varint.cpp
 
+    # clv::container（容器层：结构 / 包 / 容错 / 写读 + C ABI 门面）
+    src/container/packet.cpp
+    src/container/structure.cpp
+    src/container/timebase.cpp
+    src/container/frames.cpp
+    src/container/writer.cpp
+    src/container/reader.cpp
+    src/container/clv_container.cpp
+
     # clv::platform 公共部分（唯一选源处）
     platform/fileio/impl_fileio.cpp
 )

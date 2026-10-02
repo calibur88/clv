@@ -1,13 +1,13 @@
 # CLV 整体架构
 
-> 本文是 CLV 工程的权威架构说明。当前文档版本：0.1.0-dev（与工程版本 `0.0.1` 分轨维护）· 日期：2026-10-01。
+> 本文是 CLV 工程的权威架构说明。当前文档版本：0.1.0-dev（与工程版本 `0.0.1` 分轨维护）· 日期：2026-10-02。
 > 面向读者：要改这个库的代码的人。使用者读 `README.md` 即可，本文解释**为什么这样分层**与**每层的硬约束**。
 
 ---
 
 ## 1. 项目定位
 
-CLV = **C++ Lightweight Video**：自研轻量视频容器 + 自研视频编解码 + 自研字幕格式。当前落地的是地基层（文件、日志、内存、版本），容器 / 编解码 / 字幕尚未开工。
+CLV = **C++ Lightweight Video**：自研轻量视频容器 + 自研视频编解码 + 自研字幕格式。当前落地的是地基层（文件、日志、内存、版本）与**容器读写面**（`src/container/` + `include/CLV_Container.h`，**v0 实验性**）；视频 / 音频编解码与字幕格式尚未开工。
 
 三层物理结构：
 
@@ -22,7 +22,7 @@ CLV = **C++ Lightweight Video**：自研轻量视频容器 + 自研视频编解�
 - **能力按「编译期唯一」还是「编译期可配置」分家**：平台绑定的能力（文件 IO）进 `platform/`，同一目标里只可能编进一份；可换后端的（日志）进 `backends/`，由构建开关选。这条分界决定了目录归属，不允许混放。
 - **平台判定只有一个 `#if`**：CMake 的 `if(WIN32)` 是主判定，`platform/platform.h` 是裸机 / 直接编译场景的兜底；真正的选源 `#if` 全库只有 `platform/fileio/impl_fileio.cpp` 一处。每份平台源文件自带守卫，误加进别平台的构建时整文件为空。
 - **降级与能力走状态，不走错误通道**：日志后端为空时 `CLV_Log` 静默丢弃并返回 OK，不报错；`CLV_OpenMemoryFile` 未落地时返回 `CLV_FILE_UNSUPPORTED`。理由是下一条。
-- **日志失败不许影响宿主**：`CLV_Log` 没有返回值。日志是旁路能力，一旦给它错误通道，宿主就得为「写日志失败」写分支，这会把旁路变成主路。控制台编码同理——库只投 UTF-8 字节串，怎么显示是应用的事，这份义务由 `demo/clv_demo.c` 的 `SetupConsoleUtf8()` 演示，库不代劳。
+- **日志失败不许影响宿主**：`CLV_Log` 没有返回值。日志是旁路能力，一旦给它错误通道，宿主就得为「写日志失败」写分支，这会把旁路变成主路。控制台编码同理——库只投 UTF-8 字节串，怎么显示是应用的事，这份义务由 `demo/core.c` / `demo/container.c` 各自的 `SetupConsoleUtf8()` 演示，库不代劳。
 - **不猜调用方的路径**：Windows 侧只走 W 系列 API（UTF-8 → UTF-16 → `CreateFileW`），但**不做分隔符改写、不加 `\\?\` 前缀**。改写分隔符会掩盖调用方的错误；长路径前缀涉及一整套语义（卷名、相对路径、尾点），v1 不承诺，交给应用侧预处理。
 - **不越权承诺内存策略**：`CLV_Alloc` / `CLV_Realloc` / `CLV_Free` 直通 C 运行时，全库对内存耗尽不设防（失败返回 NULL，判空归调用方）。宿主注入分配器、静态池后端都还没做，见 §6。
 
@@ -37,7 +37,8 @@ CLV/
 │   ├── CLV_Version.h         # 版本查询
 │   ├── CLV_File.h            # 文件读写（句柄 + 三模式 + 错误码）
 │   ├── CLV_Logger.h          # 日志（等级 + 过滤）
-│   └── CLV_Memory.h          # 分配口
+│   ├── CLV_Memory.h          # 分配口
+│   └── CLV_Container.h       # 容器读写面（v0 实验性：句柄 + 错误码 + 出参结构）
 │
 ├── src/                      # C ABI 的实现与平台无关工具
 │   ├── version.cpp           # clv（顶层身份）
@@ -46,7 +47,19 @@ CLV/
 │       ├── logger.cpp        # 日志后端选源
 │       ├── memory.cpp        # malloc / realloc / free 直通
 │       ├── crc32.{h,cpp}     # CRC-32/MPEG-2（实现层工具，不出 C ABI）
-│       └── varint.{h,cpp}    # LEB128（同上）
+│       └── varint.{h,cpp}    # LEB128 + zigzag + 最短形式判定（同上）
+│
+├── src/container/            # clv::container：容器读写核心（不碰平台 IO）
+│   ├── byte_io.h             # 小端读写，读一律有界
+│   ├── io.h                  # 字节源 / 汇抽象（内存实现供测试，文件实现由门面层适配）
+│   ├── status.h              # 内部返回码，与公开枚举逐项同序
+│   ├── timebase.{h,cpp}      # 统一时间轴比较（128 位整数，自带 64×64→128）
+│   ├── packet.{h,cpp}        # 数据包编解码与逐档解析结果
+│   ├── structure.{h,cpp}     # 定长结构编解码 + 值域校验
+│   ├── frames.{h,cpp}        # 片序连续性与帧重组
+│   ├── writer.{h,cpp}        # 布局、时间轴平移、分片、索引、回填
+│   ├── reader.{h,cpp}        # 严格解析、容错处置、重同步、索引校验
+│   └── clv_container.cpp     # C ABI 门面（句柄转换 + 错误码收敛）
 │
 ├── platform/                 # clv::platform：编译期唯一、与平台绑定的能力
 │   ├── platform.h            # 平台宏兜底推导（裸宏唯一出现处）
@@ -58,17 +71,18 @@ CLV/
 │   └── null/                 # 空后端（丢弃一切，无依赖场景用）
 │
 ├── cmake/                    # sources.cmake 公共清单 + platform/<平台>.cmake + backends/<后端>.cmake
-├── tests/                    # 单一可执行 clv_tests，只吃公开 C ABI
-├── demo/                     # 示例源码 + 操作手册
-├── script/                   # 工具入口（全 .py，不参与 CMake 构建）
+├── tests/                    # 单一可执行 clv_tests，只吃公开 C ABI（core / api / container 三组）
+├── demo/                     # 示例源码（core.c 地基层 + container.c 容器层）+ 操作手册
+├── assets/                   # 入库测试素材：README + fixtures/ 三份确定性 .clv
+├── script/                   # 仓库内所有 Python 工具的入口（不参与 CMake 构建）
 └── third-party/              # 第三方源码：spdlog、googletest
 ```
 
 | 目录 | 用途 | 是否入库 |
 |---|---|---|
-| `include/` `src/` `platform/` `backends/` `cmake/` `tests/` `demo/` `script/` `third-party/` | 源码与构建 | 是 |
+| `include/` `src/` `platform/` `backends/` `cmake/` `tests/` `demo/` `assets/` `script/` `third-party/` | 源码、素材与构建 | 是 |
 | `build/` | CMake 产物、`build/_install`（第三方安装前缀） | 否 |
-| `demo_local/` | 本地产物、示例源码副本、本地复检清单 | 否 |
+| `demo_local/` | 本地产物区：`bin/` 只放可执行（每次构建先清空再投递）、`src/` 是 `demo/` 的同步副本、根上放示例跑出来的文件 | 否 |
 | `compile_commands.json` | 移动到仓库根供 clangd 读取，命令里带本机绝对路径 | 否 |
 | `.venv/`、`.vscode/`、`.cache/` | 环境与编辑器 | 否 |
 
@@ -79,7 +93,7 @@ CLV/
 | `platform/` vs `backends/` | 前者**编译期唯一**（一个目标里只可能有一份平台实现），后者**编译期可配置**（多份后端按开关选）。判据：能不能在同一份二进制里同时编进两份？能 → `backends/` |
 | `src/core/` vs `platform/fileio/` | 前者做契约判定与调度（路径合法性、句柄转换、生命周期），后者只跟平台 API 打交道，不判公开契约 |
 | `third-party/` vs `build/` | 前者放第三方**源码**，后者只放**产物**；第三方安装前缀是 `build/_install` |
-| `demo/` vs `demo_local/` | 前者入库、只放源码与手册；后者不入库、放产物与本地复检记录 |
+| `demo/` vs `demo_local/` | 前者入库、只放源码与手册；后者不入库、放构建投递的产物与示例跑出来的文件，整目录删掉可再生 |
 
 ---
 
@@ -117,6 +131,11 @@ CLV_ReadFile(h, buf, size, &got)
 ```
 
 ```
+CLV_ContainerReaderNextFrame(r, &frame, &got)
+  → src/container/clv_container.cpp   句柄转换；文件面失败收敛为 CLV_CONTAINER_IO_FAILED
+  → src/container/reader.cpp          窗口读 → packet.cpp 逐档解析 → 容错处置 / 必要时重同步
+  → src/container/frames.cpp          按 fragment_index 落位重组 → 整帧出参（载荷有效期到下次调用）
+
 CLV_Log(level, msg)
   → src/core/logger.cpp        等级过滤（越界整条丢弃）→ 函数内 static 的活跃后端
   → backends/spdlog 或 backends/null
@@ -144,8 +163,9 @@ python script/format_all.py                                # C/C++ 走 .clang-fo
 
 | 套件 | 领域 | 例数 |
 |---|---|---|
-| `core` | 路径与模式判定、CRC、varint、内存、版本 | 15 |
-| `api` | 五个公开头的端到端行为（打开 / 读写 / 游标 / 门控 / 错误码 / 日志等级） | 35 |
+| `core` | 路径与模式判定、CRC-32/MPEG-2、LEB128 与 zigzag、内存、版本 | 20 |
+| `api` | 公开头端到端行为（打开 / 读写 / 游标 / 门控 / 错误码 / 日志等级）+ 容器面句柄与错误码 | 40 |
+| `container` | 包编解码与容错分档、片序连续性与重组、读写全链路（内存源 / 汇）、索引排序与二分 | 29 |
 
 `CLV_LOGGER_USE_SPDLOG` 的 ON 与 OFF 两种配置各跑一遍同一套用例。
 
@@ -166,13 +186,14 @@ python script/format_all.py                                # C/C++ 走 .clang-fo
 
 ## 6. 现状
 
-**已实现**：C ABI 公开面五头；文件读写（三模式、1 MiB 分块、UTF-8 路径契约）；日志（spdlog 与空后端、等级过滤）；内存分配口；版本查询；实现层工具 CRC-32/MPEG-2 与无符号 LEB128；Ninja + x64 构建与 50 例 CTest。
+**已实现**：C ABI 公开面六头；文件读写（三模式、1 MiB 分块、UTF-8 路径契约）；日志（spdlog 与空后端、等级过滤）；内存分配口；版本查询；实现层工具 CRC-32/MPEG-2、LEB128 + zigzag + 最短形式判定、128 位整数时间轴比较；容器读写面（定长结构、数据包编解码、分片重组、容错与重同步、索引构建与二分查询、C ABI 门面），**标 v0 实验性**；Ninja + x64 构建与 89 例 CTest；入库确定性测试素材三份。
 
 **未落地 / 占位**：
 
 | 项 | 状态 |
 |---|---|
-| 容器解析、视频 / 音频编解码、字幕格式 | 未开工 |
+| 视频 / 音频编解码、字幕格式 | 未开工 |
+| 容器面 ABI 冻结 | `CLV_Container.h` 标 v0 实验性：函数名 / 参数结构 / 出参形态仍可能整体调整，冻结后错误码才只在本枚举尾部追加、既有码值语义不动 |
 | `CLV_OpenMemoryFile`（内存缓冲区后端） | 接口占位：有声明有定义，返回 `CLV_FILE_UNSUPPORTED` |
 | `CLV_LogSetStorage`（日志落盘） | 接口占位：调用无效果 |
 | 宿主注入后端与分配器路由 | 未做：后端由编译期选源，`CLV_Memory` 直通 C 运行时，库内部不经它 |
@@ -181,4 +202,4 @@ python script/format_all.py                                # C/C++ 走 .clang-fo
 | iOS | `platform.h` 留检测分支，选源处 `#error` 占位 |
 | Linux / macOS 后端 | 代码按 POSIX 语义写好，**未经非 Windows 平台编译验证**，不作为可用承诺 |
 | `CLV_BUILD_SHARED` | 开关存在但从未构建过，dllexport 路径与跨 DLL 释放未实测 |
-| zigzag / 跨编译器 128 位乘除 | 容器层需要，尚未落地 |
+| 容器面的非 Windows 验证 | 容器核心不碰平台 IO，但仍只在 MSVC x64 上编过、跑过 |

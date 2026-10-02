@@ -9,6 +9,14 @@ namespace clv::core
 		// uint64 的 7 位分组数：ceil(64 / 7)
 		constexpr size_t kMaxBytes = 10;
 
+		// value 线上最少要占几个 7 位分组；0 也要占 1 字节
+		constexpr size_t ShortestLen(uint64_t value) noexcept
+		{
+			size_t bits = 0;
+			for (uint64_t v = value; v != 0; v >>= 1) ++bits;
+			return bits == 0 ? 1 : (bits + 6) / 7;
+		}
+
 	}	 // namespace
 
 	size_t EncodeVarint(uint64_t value, uint8_t* buf) noexcept
@@ -46,6 +54,33 @@ namespace clv::core
 			shift += 7;
 		}
 		return 0;	 // 没有终止字节，或输入比编码短
+	}
+
+	// 全无符号式：负数走 (u << 1) ^ (0 - 符号位)，避开有符号左移的溢出未定义行为
+	size_t EncodeZigZag(int64_t value, uint8_t* buf) noexcept
+	{
+		const uint64_t u = static_cast<uint64_t>(value);
+		return EncodeVarint((u << 1) ^ (0ULL - (u >> 63)), buf);
+	}
+
+	size_t DecodeZigZag(const uint8_t* buf, size_t size, int64_t* out) noexcept
+	{
+		uint64_t u = 0;
+		const size_t used = DecodeVarint(buf, size, &u);
+		if (used == 0 || out == nullptr) return 0;
+
+		*out = static_cast<int64_t>((u >> 1) ^ (0ULL - (u & 1U)));
+		return used;
+	}
+
+	bool IsShortestVarint(const uint8_t* buf, size_t used) noexcept
+	{
+		if (buf == nullptr || used == 0 || used > kMaxBytes) return false;
+
+		uint64_t value = 0;
+		if (DecodeVarint(buf, used, &value) != used) return false;
+
+		return ShortestLen(value) == used;
 	}
 
 }	 // namespace clv::core
