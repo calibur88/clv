@@ -3,7 +3,7 @@
  * 数据包编解码。分片帧的每片都自带完整外层头，字段序与判据：
  *
  *   total_size(LE32) | stream_id | flags | [fragment_index] | dts_delta | [pts_delta]
- *   | payload_size | ext_len | payload | ext_data | crc32
+ *   | payload_size | ext_len_varint | payload | ext_data | crc32
  *
  * total_size 自 stream_id 起算、含 crc32、不含自身；线上包占 4 + total_size。
  * crc32 覆盖包内相对区间 [4, total_size)，即 stream_id 起、到 crc32 前。
@@ -70,7 +70,7 @@ namespace clv
 			uint64_t dts_delta = 0;
 			int64_t pts_delta = 0;
 			uint64_t payload_size = 0;
-			uint64_t ext_len = 0;
+			uint64_t ext_len_varint = 0;
 			std::vector<uint8_t> payload;
 			std::vector<uint8_t> ext;
 

@@ -95,8 +95,8 @@ TEST(ContainerIo, RoundTripsTwoStreamsByteExact)
 {
 	MemorySink sink;
 	ContainerWriter w(sink, WriterConfig {});
-	ASSERT_EQ(w.AddStream(MakeStream(kVideo, 0, 4096)), ContainerErr::Ok);
-	ASSERT_EQ(w.AddStream(MakeStream(kSub, 1, 1024)), ContainerErr::Ok);
+	ASSERT_EQ(w.AddStream(MakeStream(kVideo, 0, 4096)), ContainerErr::kOk);
+	ASSERT_EQ(w.AddStream(MakeStream(kSub, 1, 1024)), ContainerErr::kOk);
 
 	const std::vector<uint8_t> v0 = Payload(900, 1);
 	const std::vector<uint8_t> v1 = Payload(1200, 2);
@@ -109,7 +109,7 @@ TEST(ContainerIo, RoundTripsTwoStreamsByteExact)
 	in.pts = 80;
 	in.payload = v0.data();
 	in.payload_size = v0.size();
-	ASSERT_EQ(w.WriteFrame(in), ContainerErr::Ok);
+	ASSERT_EQ(w.WriteFrame(in), ContainerErr::kOk);
 
 	in.stream_id = 1;
 	in.is_keyframe = false;
@@ -117,7 +117,7 @@ TEST(ContainerIo, RoundTripsTwoStreamsByteExact)
 	in.pts = 0;
 	in.payload = s0.data();
 	in.payload_size = s0.size();
-	ASSERT_EQ(w.WriteFrame(in), ContainerErr::Ok);
+	ASSERT_EQ(w.WriteFrame(in), ContainerErr::kOk);
 
 	in.stream_id = 0;
 	in.is_keyframe = false;
@@ -125,10 +125,10 @@ TEST(ContainerIo, RoundTripsTwoStreamsByteExact)
 	in.pts = 43243200;
 	in.payload = v1.data();
 	in.payload_size = v1.size();
-	ASSERT_EQ(w.WriteFrame(in), ContainerErr::Ok);
+	ASSERT_EQ(w.WriteFrame(in), ContainerErr::kOk);
 
 	WriteSummary sum;
-	ASSERT_EQ(w.Finish(&sum), ContainerErr::Ok);
+	ASSERT_EQ(w.Finish(&sum), ContainerErr::kOk);
 	EXPECT_EQ(sum.packets, 3u);
 	EXPECT_EQ(sum.frames, 3u);
 	EXPECT_EQ(sum.index_entries, 3u);
@@ -136,7 +136,7 @@ TEST(ContainerIo, RoundTripsTwoStreamsByteExact)
 
 	MemorySource src(sink.Bytes());
 	ContainerReader r(src);
-	ASSERT_EQ(r.Open(), ContainerErr::Ok);
+	ASSERT_EQ(r.Open(), ContainerErr::kOk);
 	EXPECT_EQ(r.Descs().size(), 2u);
 
 	std::vector<ReassembledFrame> frames;
@@ -171,7 +171,7 @@ TEST(ContainerIo, AudioNegativeInitialDtsIsShiftedByWriter)
 	audio.timebase_num = 1;
 	audio.timebase_den = 1000;	  // 测试用毫秒刻度，避开大数
 	audio.sample_rate = 1000;
-	ASSERT_EQ(w.AddStream(audio), ContainerErr::Ok);
+	ASSERT_EQ(w.AddStream(audio), ContainerErr::kOk);
 
 	const int64_t timeline[] = { -40, 0, 40, 80 };
 	std::vector<uint8_t> bytes[4];
@@ -184,16 +184,16 @@ TEST(ContainerIo, AudioNegativeInitialDtsIsShiftedByWriter)
 		in.pts = timeline[i];
 		in.payload = bytes[i].data();
 		in.payload_size = bytes[i].size();
-		ASSERT_EQ(w.WriteFrame(in), ContainerErr::Ok);
+		ASSERT_EQ(w.WriteFrame(in), ContainerErr::kOk);
 	}
 
 	WriteSummary sum;
-	ASSERT_EQ(w.Finish(&sum), ContainerErr::Ok);
+	ASSERT_EQ(w.Finish(&sum), ContainerErr::kOk);
 	EXPECT_EQ(w.StreamShift(0), -40);
 
 	MemorySource src(sink.Bytes());
 	ContainerReader r(src);
-	ASSERT_EQ(r.Open(), ContainerErr::Ok);
+	ASSERT_EQ(r.Open(), ContainerErr::kOk);
 
 	uint64_t acc = 0;
 	int count = 0;
@@ -218,7 +218,7 @@ TEST(ContainerIo, FragmentsReassembleAndIndexOncePerFrame)
 	cfg.fragment_chunk_size = 256;
 	MemorySink sink;
 	ContainerWriter w(sink, cfg);
-	ASSERT_EQ(w.AddStream(MakeStream(kVideo, 0, 4096)), ContainerErr::Ok);
+	ASSERT_EQ(w.AddStream(MakeStream(kVideo, 0, 4096)), ContainerErr::kOk);
 
 	const std::vector<uint8_t> big = Payload(1000, 7);
 	clv::container::FrameInput in;
@@ -226,18 +226,18 @@ TEST(ContainerIo, FragmentsReassembleAndIndexOncePerFrame)
 	in.is_keyframe = true;
 	in.payload = big.data();
 	in.payload_size = big.size();
-	ASSERT_EQ(w.WriteFrame(in), ContainerErr::Ok);
-	ASSERT_EQ(w.WriteFrame(in), ContainerErr::Ok);
+	ASSERT_EQ(w.WriteFrame(in), ContainerErr::kOk);
+	ASSERT_EQ(w.WriteFrame(in), ContainerErr::kOk);
 
 	WriteSummary sum;
-	ASSERT_EQ(w.Finish(&sum), ContainerErr::Ok);
+	ASSERT_EQ(w.Finish(&sum), ContainerErr::kOk);
 	EXPECT_EQ(sum.frames, 2u);
 	EXPECT_EQ(sum.packets, 8u);			 // 每帧四片
 	EXPECT_EQ(sum.index_entries, 2u);	 // 同一帧只在首分片建条目
 
 	MemorySource src(sink.Bytes());
 	ContainerReader r(src);
-	ASSERT_EQ(r.Open(), ContainerErr::Ok);
+	ASSERT_EQ(r.Open(), ContainerErr::kOk);
 
 	ReassembledFrame f;
 	ASSERT_TRUE(r.NextFrame(&f));
@@ -256,7 +256,7 @@ TEST(ContainerIo, PayloadBitFlipDropsPacketWithoutResync)
 	// CRC 不过只丢包并跳 total_size，不进重同步
 	MemorySink sink;
 	ContainerWriter w(sink, WriterConfig {});
-	ASSERT_EQ(w.AddStream(MakeStream(kVideo, 0, 4096)), ContainerErr::Ok);
+	ASSERT_EQ(w.AddStream(MakeStream(kVideo, 0, 4096)), ContainerErr::kOk);
 
 	const std::vector<uint8_t> a = Payload(300, 1);
 	const std::vector<uint8_t> b = Payload(300, 2);
@@ -264,21 +264,21 @@ TEST(ContainerIo, PayloadBitFlipDropsPacketWithoutResync)
 	in.stream_id = 0;
 	in.payload = a.data();
 	in.payload_size = a.size();
-	ASSERT_EQ(w.WriteFrame(in), ContainerErr::Ok);
+	ASSERT_EQ(w.WriteFrame(in), ContainerErr::kOk);
 	in.dts = 100;
 	in.payload = b.data();
 	in.payload_size = b.size();
-	ASSERT_EQ(w.WriteFrame(in), ContainerErr::Ok);
+	ASSERT_EQ(w.WriteFrame(in), ContainerErr::kOk);
 
 	WriteSummary sum;
-	ASSERT_EQ(w.Finish(&sum), ContainerErr::Ok);
+	ASSERT_EQ(w.Finish(&sum), ContainerErr::kOk);
 
 	std::vector<uint8_t> bytes = sink.Bytes();
 	bytes[static_cast<size_t>(sum.packet_area_start) + 20] ^= 0x01;
 
 	MemorySource src(bytes);
 	ContainerReader r(src);
-	ASSERT_EQ(r.Open(), ContainerErr::Ok);
+	ASSERT_EQ(r.Open(), ContainerErr::kOk);
 
 	int frames = 0;
 	ReassembledFrame f;
@@ -293,7 +293,7 @@ TEST(ContainerIo, ZeroedTotalSizeTriggersResyncAndRecovers)
 {
 	MemorySink sink;
 	ContainerWriter w(sink, WriterConfig {});
-	ASSERT_EQ(w.AddStream(MakeStream(kVideo, 0, 4096)), ContainerErr::Ok);
+	ASSERT_EQ(w.AddStream(MakeStream(kVideo, 0, 4096)), ContainerErr::kOk);
 
 	for (int i = 0; i < 4; ++i)
 	{
@@ -303,17 +303,17 @@ TEST(ContainerIo, ZeroedTotalSizeTriggersResyncAndRecovers)
 		in.dts = i * 100;
 		in.payload = p.data();
 		in.payload_size = p.size();
-		ASSERT_EQ(w.WriteFrame(in), ContainerErr::Ok);
+		ASSERT_EQ(w.WriteFrame(in), ContainerErr::kOk);
 	}
 	WriteSummary sum;
-	ASSERT_EQ(w.Finish(&sum), ContainerErr::Ok);
+	ASSERT_EQ(w.Finish(&sum), ContainerErr::kOk);
 
 	std::vector<uint8_t> bytes = sink.Bytes();
 	for (size_t i = 0; i < 4; ++i) bytes[static_cast<size_t>(sum.packet_area_start) + i] = 0;
 
 	MemorySource src(bytes);
 	ContainerReader r(src);
-	ASSERT_EQ(r.Open(), ContainerErr::Ok);
+	ASSERT_EQ(r.Open(), ContainerErr::kOk);
 
 	int frames = 0;
 	ReassembledFrame f;
@@ -331,7 +331,7 @@ TEST(ContainerIo, JunkAtPacketBoundaryIsScannedOutWithinWindow)
 	cfg.index_present = false;
 	MemorySink sink;
 	ContainerWriter w(sink, cfg);
-	ASSERT_EQ(w.AddStream(MakeStream(kVideo, 0, 4096)), ContainerErr::Ok);
+	ASSERT_EQ(w.AddStream(MakeStream(kVideo, 0, 4096)), ContainerErr::kOk);
 
 	for (int i = 0; i < 3; ++i)
 	{
@@ -341,10 +341,10 @@ TEST(ContainerIo, JunkAtPacketBoundaryIsScannedOutWithinWindow)
 		in.dts = i * 100;
 		in.payload = p.data();
 		in.payload_size = p.size();
-		ASSERT_EQ(w.WriteFrame(in), ContainerErr::Ok);
+		ASSERT_EQ(w.WriteFrame(in), ContainerErr::kOk);
 	}
 	WriteSummary sum;
-	ASSERT_EQ(w.Finish(&sum), ContainerErr::Ok);
+	ASSERT_EQ(w.Finish(&sum), ContainerErr::kOk);
 
 	const std::vector<uint8_t> built = sink.Bytes();
 	const uint64_t area_end_no_index = built.size() - clv::container::kFileTailSize;
@@ -358,7 +358,7 @@ TEST(ContainerIo, JunkAtPacketBoundaryIsScannedOutWithinWindow)
 
 	MemorySource src(bytes);
 	ContainerReader r(src);
-	ASSERT_EQ(r.Open(), ContainerErr::Ok);
+	ASSERT_EQ(r.Open(), ContainerErr::kOk);
 
 	int frames = 0;
 	ReassembledFrame f;
@@ -372,7 +372,7 @@ TEST(ContainerIo, RuntimeLimitShieldsOversizedPackets)
 {
 	MemorySink sink;
 	ContainerWriter w(sink, WriterConfig {});
-	ASSERT_EQ(w.AddStream(MakeStream(kVideo, 0, 4096)), ContainerErr::Ok);
+	ASSERT_EQ(w.AddStream(MakeStream(kVideo, 0, 4096)), ContainerErr::kOk);
 
 	for (int i = 0; i < 3; ++i)
 	{
@@ -382,17 +382,17 @@ TEST(ContainerIo, RuntimeLimitShieldsOversizedPackets)
 		in.dts = i * 100;
 		in.payload = p.data();
 		in.payload_size = p.size();
-		ASSERT_EQ(w.WriteFrame(in), ContainerErr::Ok);
+		ASSERT_EQ(w.WriteFrame(in), ContainerErr::kOk);
 	}
 	WriteSummary sum;
-	ASSERT_EQ(w.Finish(&sum), ContainerErr::Ok);
+	ASSERT_EQ(w.Finish(&sum), ContainerErr::kOk);
 
 	// 接受上限：只给 512 字节，超的是包不是文件
 	ReaderConfig rcfg;
 	rcfg.runtime_packet_limit = 512;
 	MemorySource src(sink.Bytes());
 	ContainerReader r(src, rcfg);
-	ASSERT_EQ(r.Open(), ContainerErr::Ok);
+	ASSERT_EQ(r.Open(), ContainerErr::kOk);
 
 	int frames = 0;
 	ReassembledFrame f;
@@ -407,8 +407,8 @@ TEST(ContainerIo, BadDescriptorDisablesOnlyThatStream)
 {
 	MemorySink sink;
 	ContainerWriter w(sink, WriterConfig {});
-	ASSERT_EQ(w.AddStream(MakeStream(kVideo, 0, 4096)), ContainerErr::Ok);
-	ASSERT_EQ(w.AddStream(MakeStream(kSub, 1, 1024)), ContainerErr::Ok);
+	ASSERT_EQ(w.AddStream(MakeStream(kVideo, 0, 4096)), ContainerErr::kOk);
+	ASSERT_EQ(w.AddStream(MakeStream(kSub, 1, 1024)), ContainerErr::kOk);
 
 	const std::vector<uint8_t> v = Payload(300, 1);
 	const std::vector<uint8_t> s = Payload(40, 2);
@@ -416,14 +416,14 @@ TEST(ContainerIo, BadDescriptorDisablesOnlyThatStream)
 	in.stream_id = 0;
 	in.payload = v.data();
 	in.payload_size = v.size();
-	ASSERT_EQ(w.WriteFrame(in), ContainerErr::Ok);
+	ASSERT_EQ(w.WriteFrame(in), ContainerErr::kOk);
 	in.stream_id = 1;
 	in.payload = s.data();
 	in.payload_size = s.size();
-	ASSERT_EQ(w.WriteFrame(in), ContainerErr::Ok);
+	ASSERT_EQ(w.WriteFrame(in), ContainerErr::kOk);
 
 	WriteSummary sum;
-	ASSERT_EQ(w.Finish(&sum), ContainerErr::Ok);
+	ASSERT_EQ(w.Finish(&sum), ContainerErr::kOk);
 
 	std::vector<uint8_t> bytes = sink.Bytes();
 	// 第二条描述符（偏移 64 + 64）坏一个字节，不补 CRC：只有该流不可用
@@ -431,7 +431,7 @@ TEST(ContainerIo, BadDescriptorDisablesOnlyThatStream)
 
 	MemorySource src(bytes);
 	ContainerReader r(src);
-	ASSERT_EQ(r.Open(), ContainerErr::Ok);
+	ASSERT_EQ(r.Open(), ContainerErr::kOk);
 	EXPECT_TRUE(r.StreamUsable(0));
 	EXPECT_FALSE(r.StreamUsable(1));
 
@@ -448,24 +448,24 @@ TEST(ContainerIo, ExtBlocksRoundTripAndChain)
 	MemorySink sink;
 	ContainerWriter w(sink, WriterConfig {});
 	StreamDesc sub = MakeStream(kSub, 0, 4096);
-	ASSERT_EQ(w.AddStream(sub), ContainerErr::Ok);
+	ASSERT_EQ(w.AddStream(sub), ContainerErr::kOk);
 
 	const std::vector<uint8_t> styles = Payload(577, 9);
 	const std::vector<uint8_t> extra = Payload(16, 8);
-	ASSERT_EQ(w.AddExtBlock(0, 4, 1, styles.data(), styles.size()), ContainerErr::Ok);
-	ASSERT_EQ(w.AddExtBlock(0, 6, 1, extra.data(), extra.size()), ContainerErr::Ok);
+	ASSERT_EQ(w.AddExtBlock(0, 4, 1, styles.data(), styles.size()), ContainerErr::kOk);
+	ASSERT_EQ(w.AddExtBlock(0, 6, 1, extra.data(), extra.size()), ContainerErr::kOk);
 
 	const std::vector<uint8_t> ev = Payload(30, 3);
 	clv::container::FrameInput in;
 	in.stream_id = 0;
 	in.payload = ev.data();
 	in.payload_size = ev.size();
-	ASSERT_EQ(w.WriteFrame(in), ContainerErr::Ok);
-	ASSERT_EQ(w.Finish(nullptr), ContainerErr::Ok);
+	ASSERT_EQ(w.WriteFrame(in), ContainerErr::kOk);
+	ASSERT_EQ(w.Finish(nullptr), ContainerErr::kOk);
 
 	MemorySource src(sink.Bytes());
 	ContainerReader r(src);
-	ASSERT_EQ(r.Open(), ContainerErr::Ok);
+	ASSERT_EQ(r.Open(), ContainerErr::kOk);
 	ASSERT_EQ(r.ExtBlocks().size(), 2u);
 	EXPECT_EQ(r.ExtBlocks()[0].type, 4);
 	EXPECT_EQ(r.ExtBlocks()[0].data, styles);
@@ -486,19 +486,19 @@ TEST(ContainerIo, StreamingHeadLeavesPacketCountUnknown)
 	cfg.streaming = true;
 	MemorySink sink;
 	ContainerWriter w(sink, cfg);
-	ASSERT_EQ(w.AddStream(MakeStream(kVideo, 0, 4096)), ContainerErr::Ok);
+	ASSERT_EQ(w.AddStream(MakeStream(kVideo, 0, 4096)), ContainerErr::kOk);
 
 	const std::vector<uint8_t> p = Payload(120, 4);
 	clv::container::FrameInput in;
 	in.stream_id = 0;
 	in.payload = p.data();
 	in.payload_size = p.size();
-	ASSERT_EQ(w.WriteFrame(in), ContainerErr::Ok);
-	ASSERT_EQ(w.Finish(nullptr), ContainerErr::Ok);
+	ASSERT_EQ(w.WriteFrame(in), ContainerErr::kOk);
+	ASSERT_EQ(w.Finish(nullptr), ContainerErr::kOk);
 
 	MemorySource src(sink.Bytes());
 	ContainerReader r(src);
-	ASSERT_EQ(r.Open(), ContainerErr::Ok);
+	ASSERT_EQ(r.Open(), ContainerErr::kOk);
 	EXPECT_EQ(r.Head().total_packets, clv::container::kUnknownPacketCount);
 	EXPECT_EQ(r.Head().flags & static_cast<uint8_t>(HeadFlagBit::kStreaming),
 			  static_cast<uint8_t>(HeadFlagBit::kStreaming));
@@ -518,8 +518,8 @@ TEST(ContainerIo, IndexSortsAcrossStreamsByUnifiedAxis)
 	video.timebase_num = 1;
 	video.timebase_den = 1081080000;	// 基础时间基
 	StreamDesc audio = MakeStream(kAudio, 1, 4096);
-	ASSERT_EQ(w.AddStream(video), ContainerErr::Ok);
-	ASSERT_EQ(w.AddStream(audio), ContainerErr::Ok);
+	ASSERT_EQ(w.AddStream(video), ContainerErr::kOk);
+	ASSERT_EQ(w.AddStream(audio), ContainerErr::kOk);
 
 	const std::vector<uint8_t> p = Payload(64, 5);
 	clv::container::FrameInput in;
@@ -529,20 +529,20 @@ TEST(ContainerIo, IndexSortsAcrossStreamsByUnifiedAxis)
 	// 0 ms 视频、480 样本（=10 ms）音频、27027000 tick 视频（=25 ms）
 	in.stream_id = 0;
 	in.dts = 0;
-	ASSERT_EQ(w.WriteFrame(in), ContainerErr::Ok);
+	ASSERT_EQ(w.WriteFrame(in), ContainerErr::kOk);
 	in.stream_id = 1;
 	in.dts = 480;
-	ASSERT_EQ(w.WriteFrame(in), ContainerErr::Ok);
+	ASSERT_EQ(w.WriteFrame(in), ContainerErr::kOk);
 	in.stream_id = 0;
 	in.dts = 27027000;
-	ASSERT_EQ(w.WriteFrame(in), ContainerErr::Ok);
+	ASSERT_EQ(w.WriteFrame(in), ContainerErr::kOk);
 
 	WriteSummary sum;
-	ASSERT_EQ(w.Finish(&sum), ContainerErr::Ok);
+	ASSERT_EQ(w.Finish(&sum), ContainerErr::kOk);
 
 	MemorySource src(sink.Bytes());
 	ContainerReader r(src);
-	ASSERT_EQ(r.Open(), ContainerErr::Ok);
+	ASSERT_EQ(r.Open(), ContainerErr::kOk);
 	ASSERT_TRUE(r.HasIndex());
 	ASSERT_EQ(r.IndexEntryCount(), 3u);
 
@@ -564,59 +564,59 @@ TEST(ContainerIo, RejectsWritesThatWouldBreakTheFormat)
 	MemorySink sink;
 	ContainerWriter w(sink, WriterConfig {});
 	StreamDesc v = MakeStream(kVideo, 0, 256);
-	ASSERT_EQ(w.AddStream(v), ContainerErr::Ok);
+	ASSERT_EQ(w.AddStream(v), ContainerErr::kOk);
 
 	StreamDesc bad = MakeStream(kVideo, 1, 256);
 	bad.first_dts = 5;	  // v1 强制 0
-	EXPECT_EQ(w.AddStream(bad), ContainerErr::ValueRange);
+	EXPECT_EQ(w.AddStream(bad), ContainerErr::kValueRange);
 	bad.first_dts = 0;
 	bad.timebase_num = 0x100000000ull;	  // 超 u32 值域
-	EXPECT_EQ(w.AddStream(bad), ContainerErr::ValueRange);
+	EXPECT_EQ(w.AddStream(bad), ContainerErr::kValueRange);
 
 	const std::vector<uint8_t> big = Payload(300, 1);
 	// 还在收集流阶段：未知流名的扩展块报 StreamNotFound
-	EXPECT_EQ(w.AddExtBlock(9, 4, 1, big.data(), 8), ContainerErr::StreamNotFound);
+	EXPECT_EQ(w.AddExtBlock(9, 4, 1, big.data(), 8), ContainerErr::kStreamNotFound);
 
 	clv::container::FrameInput in;
 	in.stream_id = 0;
 	in.payload = big.data();
 	in.payload_size = big.size();
-	EXPECT_EQ(w.WriteFrame(in), ContainerErr::TooLarge);	// 超该流 payload 上限
+	EXPECT_EQ(w.WriteFrame(in), ContainerErr::kTooLarge);	 // 超该流 payload 上限
 
 	in.payload_size = 100;
-	ASSERT_EQ(w.WriteFrame(in), ContainerErr::Ok);
+	ASSERT_EQ(w.WriteFrame(in), ContainerErr::kOk);
 	in.dts = -5;	// 首帧之后回退
-	EXPECT_EQ(w.WriteFrame(in), ContainerErr::InvalidArgument);
+	EXPECT_EQ(w.WriteFrame(in), ContainerErr::kInvalidArgument);
 
-	EXPECT_EQ(w.AddExtBlock(9, 4, 1, big.data(), 8), ContainerErr::StateError);	   // 已出包，阶段不对
-	EXPECT_EQ(w.AddStream(v), ContainerErr::StateError);
+	EXPECT_EQ(w.AddExtBlock(9, 4, 1, big.data(), 8), ContainerErr::kStateError);	// 已出包，阶段不对
+	EXPECT_EQ(w.AddStream(v), ContainerErr::kStateError);
 
 	std::vector<uint8_t> tiny = Payload(8, 2);
 	in.stream_id = 0;
 	in.dts = 100;
 	in.payload = tiny.data();
 	in.payload_size = tiny.size();
-	ASSERT_EQ(w.WriteFrame(in), ContainerErr::Ok);
-	ASSERT_EQ(w.Finish(nullptr), ContainerErr::Ok);
-	EXPECT_EQ(w.Finish(nullptr), ContainerErr::StateError);
+	ASSERT_EQ(w.WriteFrame(in), ContainerErr::kOk);
+	ASSERT_EQ(w.Finish(nullptr), ContainerErr::kOk);
+	EXPECT_EQ(w.Finish(nullptr), ContainerErr::kStateError);
 }
 
 TEST(ContainerIo, EmptyPayloadFrameRoundTrips)
 {
 	MemorySink sink;
 	ContainerWriter w(sink, WriterConfig {});
-	ASSERT_EQ(w.AddStream(MakeStream(kSub, 0, 1024)), ContainerErr::Ok);
+	ASSERT_EQ(w.AddStream(MakeStream(kSub, 0, 1024)), ContainerErr::kOk);
 
 	clv::container::FrameInput in;
 	in.stream_id = 0;
 	in.payload = nullptr;
 	in.payload_size = 0;
-	ASSERT_EQ(w.WriteFrame(in), ContainerErr::Ok);
-	ASSERT_EQ(w.Finish(nullptr), ContainerErr::Ok);
+	ASSERT_EQ(w.WriteFrame(in), ContainerErr::kOk);
+	ASSERT_EQ(w.Finish(nullptr), ContainerErr::kOk);
 
 	MemorySource src(sink.Bytes());
 	ContainerReader r(src);
-	ASSERT_EQ(r.Open(), ContainerErr::Ok);
+	ASSERT_EQ(r.Open(), ContainerErr::kOk);
 	ReassembledFrame f;
 	ASSERT_TRUE(r.NextFrame(&f));
 	EXPECT_EQ(f.payload.size(), 0u);

@@ -264,10 +264,8 @@ namespace clv
 		int CompareIndexEntries(const IndexEntry& a, const IndexEntry& b,
 								const std::vector<StreamDesc*>& desc_by_id) noexcept
 		{
-			const size_t ida = a.stream_id < desc_by_id.size() ? a.stream_id : 0xFFFFu;
-			const size_t idb = b.stream_id < desc_by_id.size() ? b.stream_id : 0xFFFFu;
-			const StreamDesc* da = ida == 0xFFFFu ? nullptr : desc_by_id[a.stream_id];
-			const StreamDesc* db = idb == 0xFFFFu ? nullptr : desc_by_id[b.stream_id];
+			const StreamDesc* da = a.stream_id < desc_by_id.size() ? desc_by_id[a.stream_id] : nullptr;
+			const StreamDesc* db = b.stream_id < desc_by_id.size() ? desc_by_id[b.stream_id] : nullptr;
 
 			// 描述符缺失的条目排最后：单位不明的 dts 不参与统一时间轴换算
 			if (da == nullptr || db == nullptr)

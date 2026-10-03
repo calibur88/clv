@@ -147,6 +147,7 @@ namespace
 		d.bit_depth = c.bit_depth;
 		d.codec_flags_0 = c.codec_flags_0;
 		d.vlc_table_id = c.vlc_table_id;
+		// ext_offset 是布局算出来的，不由调用方给，故公开面没有这个字段
 		d.ext_offset = 0;
 		d.codec_flags_1 = c.codec_flags_1;
 		d.layer_id = c.layer_id;
@@ -259,7 +260,7 @@ extern "C"
 
 		WriteSummary sum;
 		const ContainerErr e = h->w->Finish(&sum);
-		if (e != ContainerErr::Ok) return ToApi(e);
+		if (e != ContainerErr::kOk) return ToApi(e);
 		if (! h->sink.Flush()) return CLV_CONTAINER_IO_FAILED;
 		if (packets_out != nullptr) *packets_out = sum.packets;
 		return CLV_CONTAINER_OK;
@@ -302,7 +303,7 @@ extern "C"
 		}
 
 		const ContainerErr e = self->r->Open();
-		if (e != ContainerErr::Ok)
+		if (e != ContainerErr::kOk)
 		{
 			CLV_CloseFile(self->file);
 			delete self;

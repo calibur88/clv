@@ -40,7 +40,7 @@ namespace clv::platform::win32
 
 	Win32FileIO::~Win32FileIO()
 	{
-		if (m_handle != INVALID_HANDLE_VALUE) CloseHandle(m_handle);
+		if (handle_ != INVALID_HANDLE_VALUE) CloseHandle(handle_);
 	}
 
 	int Win32FileIO::Open(const char* path, int mode)
@@ -86,15 +86,15 @@ namespace clv::platform::win32
 			}
 		}
 
-		m_handle = handle;
-		m_mode = mode;
+		handle_ = handle;
+		mode_ = mode;
 		return CLV_FILE_OK;
 	}
 
 	int Win32FileIO::Read(void* buf, size_t size, size_t* bytes_read)
 	{
-		if (m_handle == INVALID_HANDLE_VALUE) return CLV_FILE_INVALID_HANDLE;
-		if (m_mode != CLV_FILE_MODE_READ) return CLV_FILE_READ_FAILED;
+		if (handle_ == INVALID_HANDLE_VALUE) return CLV_FILE_INVALID_HANDLE;
+		if (mode_ != CLV_FILE_MODE_READ) return CLV_FILE_READ_FAILED;
 		if (size > 0 && buf == nullptr) return CLV_FILE_INVALID_ARGUMENT;
 
 		size_t total = 0;
@@ -103,7 +103,7 @@ namespace clv::platform::win32
 			const size_t remaining = size - total;
 			const size_t want = remaining < kMaxChunk ? remaining : kMaxChunk;
 			DWORD got = 0;
-			if (ReadFile(m_handle, static_cast<char*>(buf) + total, static_cast<DWORD>(want), &got, nullptr) == 0)
+			if (ReadFile(handle_, static_cast<char*>(buf) + total, static_cast<DWORD>(want), &got, nullptr) == 0)
 			{
 				if (bytes_read != nullptr) *bytes_read = total;
 				return CLV_FILE_READ_FAILED;
@@ -118,8 +118,8 @@ namespace clv::platform::win32
 
 	int Win32FileIO::Write(const void* data, size_t size, size_t* bytes_written)
 	{
-		if (m_handle == INVALID_HANDLE_VALUE) return CLV_FILE_INVALID_HANDLE;
-		if (m_mode != CLV_FILE_MODE_WRITE && m_mode != CLV_FILE_MODE_APPEND) return CLV_FILE_WRITE_FAILED;
+		if (handle_ == INVALID_HANDLE_VALUE) return CLV_FILE_INVALID_HANDLE;
+		if (mode_ != CLV_FILE_MODE_WRITE && mode_ != CLV_FILE_MODE_APPEND) return CLV_FILE_WRITE_FAILED;
 		if (size > 0 && data == nullptr) return CLV_FILE_INVALID_ARGUMENT;
 
 		size_t total = 0;
@@ -128,7 +128,7 @@ namespace clv::platform::win32
 			const size_t remaining = size - total;
 			const size_t want = remaining < kMaxChunk ? remaining : kMaxChunk;
 			DWORD put = 0;
-			if (WriteFile(m_handle, static_cast<const char*>(data) + total, static_cast<DWORD>(want), &put, nullptr) ==
+			if (WriteFile(handle_, static_cast<const char*>(data) + total, static_cast<DWORD>(want), &put, nullptr) ==
 				0)
 			{
 				if (bytes_written != nullptr) *bytes_written = total;
@@ -149,14 +149,14 @@ namespace clv::platform::win32
 
 	int Win32FileIO::Seek(uint64_t offset, uint64_t* new_position)
 	{
-		if (m_handle == INVALID_HANDLE_VALUE) return CLV_FILE_INVALID_HANDLE;
+		if (handle_ == INVALID_HANDLE_VALUE) return CLV_FILE_INVALID_HANDLE;
 		// SetFilePointerEx 的位移量是有符号 LARGE_INTEGER，超过 2^63-1 的偏移会被当成负数
 		if (offset > static_cast<uint64_t>(std::numeric_limits<LONGLONG>::max())) return CLV_FILE_SEEK_FAILED;
 
 		LARGE_INTEGER target {};
 		target.QuadPart = static_cast<LONGLONG>(offset);
 		LARGE_INTEGER moved {};
-		if (SetFilePointerEx(m_handle, target, &moved, FILE_BEGIN) == 0) return CLV_FILE_SEEK_FAILED;
+		if (SetFilePointerEx(handle_, target, &moved, FILE_BEGIN) == 0) return CLV_FILE_SEEK_FAILED;
 
 		if (new_position != nullptr) *new_position = static_cast<uint64_t>(moved.QuadPart);
 		return CLV_FILE_OK;
@@ -164,10 +164,10 @@ namespace clv::platform::win32
 
 	int Win32FileIO::Size(uint64_t* size)
 	{
-		if (m_handle == INVALID_HANDLE_VALUE) return CLV_FILE_INVALID_HANDLE;
+		if (handle_ == INVALID_HANDLE_VALUE) return CLV_FILE_INVALID_HANDLE;
 
 		LARGE_INTEGER bytes {};
-		if (GetFileSizeEx(m_handle, &bytes) == 0) return CLV_FILE_SIZE_FAILED;
+		if (GetFileSizeEx(handle_, &bytes) == 0) return CLV_FILE_SIZE_FAILED;
 
 		if (size != nullptr) *size = static_cast<uint64_t>(bytes.QuadPart);
 		return CLV_FILE_OK;
@@ -175,10 +175,10 @@ namespace clv::platform::win32
 
 	int Win32FileIO::Flush()
 	{
-		if (m_handle == INVALID_HANDLE_VALUE) return CLV_FILE_INVALID_HANDLE;
-		if (m_mode == CLV_FILE_MODE_READ) return CLV_FILE_OK;	 // 只读句柄没有写缓冲可刷
+		if (handle_ == INVALID_HANDLE_VALUE) return CLV_FILE_INVALID_HANDLE;
+		if (mode_ == CLV_FILE_MODE_READ) return CLV_FILE_OK;	// 只读句柄没有写缓冲可刷
 
-		return FlushFileBuffers(m_handle) == 0 ? CLV_FILE_FLUSH_FAILED : CLV_FILE_OK;
+		return FlushFileBuffers(handle_) == 0 ? CLV_FILE_FLUSH_FAILED : CLV_FILE_OK;
 	}
 
 }	 // namespace clv::platform::win32

@@ -30,6 +30,9 @@ namespace clv
 		constexpr size_t kExtBlockFixedPrefix = 4 + 1 + 1 + 2 + 8;	  // magic..next_ext_offset
 		constexpr size_t kExtBlockCrcSize = 4;
 
+		// stream_id 是 u8，读写方按 id 建查表时的项数
+		constexpr size_t kStreamIdSpace = 256;
+
 		constexpr uint16_t kVersionMajorV1 = 1;
 		constexpr uint16_t kVersionMinorV1 = 0;
 		constexpr uint64_t kUnknownPacketCount = 0xFFFFFFFFFFFFFFFFull;
@@ -116,7 +119,7 @@ namespace clv
 		bool DescValuesOk(const StreamDesc& d) noexcept;
 
 		/* 索引排序比较：先按统一时间轴，再按 stream_id，再按文件内出现顺序（file_offset）。
-		 * descs 必须按 stream_id 索引（数组长度 = 最大 stream_id + 1），找不到的流排在最后。
+		 * desc_by_id 以下标 = stream_id 索引，未登记的流位置为 nullptr，这类条目排在最后。
 		 * 返回 <0 / 0 / >0。 */
 		int CompareIndexEntries(const IndexEntry& a, const IndexEntry& b,
 								const std::vector<StreamDesc*>& desc_by_id) noexcept;

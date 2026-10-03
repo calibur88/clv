@@ -37,8 +37,8 @@ namespace clv::platform::linux_
 
 		private:
 
-		FILE* m_fp = nullptr;
-		int m_mode = -1;
+		FILE* fp_ = nullptr;
+		int mode_ = -1;
 	};
 
 }	 // namespace clv::platform::linux_

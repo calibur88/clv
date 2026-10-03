@@ -99,9 +99,9 @@ namespace clv
 		{
 			public:
 
-			Cursor(const uint8_t* data, size_t size) noexcept: p_(data), n_(size)
+			Cursor(const uint8_t* data, size_t size) noexcept: data_(data), size_(size)
 			{
-				if (data == nullptr) p_ = reinterpret_cast<const uint8_t*>(""), n_ = 0;
+				if (data == nullptr) data_ = reinterpret_cast<const uint8_t*>(""), size_ = 0;
 			}
 
 			bool U8(uint8_t* v) noexcept
@@ -139,13 +139,13 @@ namespace clv
 			// 取 n 字节，*at 指向本段起点；越界则整次失败
 			bool Take(size_t n, const uint8_t** at) noexcept
 			{
-				if (failed_ || at == nullptr || n > n_ - i_)
+				if (failed_ || at == nullptr || n > size_ - pos_)
 				{
 					failed_ = true;
 					return false;
 				}
-				*at = p_ + i_;
-				i_ += n;
+				*at = data_ + pos_;
+				pos_ += n;
 				return true;
 			}
 
@@ -157,21 +157,21 @@ namespace clv
 				return true;
 			}
 
-			size_t Used() const noexcept { return i_; }
+			size_t Used() const noexcept { return pos_; }
 
-			size_t Size() const noexcept { return n_; }
+			size_t Size() const noexcept { return size_; }
 
-			size_t Remain() const noexcept { return failed_ ? 0 : n_ - i_; }
+			size_t Remain() const noexcept { return failed_ ? 0 : size_ - pos_; }
 
-			const uint8_t* Base() const noexcept { return p_; }
+			const uint8_t* Base() const noexcept { return data_; }
 
 			bool Failed() const noexcept { return failed_; }
 
 			private:
 
-			const uint8_t* p_ = nullptr;
-			size_t n_ = 0;
-			size_t i_ = 0;
+			const uint8_t* data_ = nullptr;
+			size_t size_ = 0;
+			size_t pos_ = 0;
 			bool failed_ = false;
 		};
 

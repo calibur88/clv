@@ -30,11 +30,12 @@ namespace clv
 		{
 			// 0 = 取默认上限：该流 max_packet_size + 外层最坏 41
 			uint64_t runtime_packet_limit = 0;
-			// 重同步窗口固定 64 KB，v1 不设可调参数
-			uint64_t resync_window = 64ull * 1024ull;
 			// 读方一次驻留的窗口上限：包区再大也只在窗口内解析（v0 的实现上限，差异说明项）
 			uint64_t window_max = 8ull * 1024ull * 1024ull;
 		};
+
+		// 重同步扫描窗口：格式侧定死 64 KB，不作为可调项暴露
+		constexpr uint64_t kResyncWindow = 64ull * 1024ull;
 
 		struct ReaderStats
 		{
@@ -78,9 +79,9 @@ namespace clv
 
 			const FileHead& Head() const noexcept { return head_; }
 
-			const std::vector<StreamDesc>& Descs() const noexcept { return descs_; }
+			const std::vector<StreamDesc>& Descs() const noexcept { return descriptors_; }
 
-			const std::vector<ExtRecord>& ExtBlocks() const noexcept { return exts_; }
+			const std::vector<ExtRecord>& ExtBlocks() const noexcept { return ext_records_; }
 
 			// 含不可用流：结构读出来了就在，供诊断
 			bool StreamUsable(uint8_t stream_id) const noexcept;
@@ -88,7 +89,7 @@ namespace clv
 			// 产出一个重组帧；false = 没有更多帧（正常到包区末尾，或已放弃）
 			bool NextFrame(ReassembledFrame* out);
 
-			const ReaderStats& Stats() const noexcept { return st_; }
+			const ReaderStats& Stats() const noexcept { return stats_; }
 
 			// ---- 索引区 ----
 			bool HasIndex() const noexcept { return index_valid_; }
@@ -105,10 +106,10 @@ namespace clv
 			bool Ensure(size_t want);
 			void Consume(size_t n);
 			bool Whitelisted(uint8_t stream_id) const noexcept;
-			// 该流的描述符；不可用或没有返回 nullptr
+			// 该流的描述符；不可用或没有返回 nullptr。走 desc_by_id_，O(1)
 			const StreamDesc* DescOf(uint8_t stream_id) const noexcept;
-			// 下标 = stream_id 的指针表，供索引比较用
-			std::vector<StreamDesc*> DescLookupTable() const;
+			// 建 / 重建 desc_by_id_：Open 读完描述符表后调一次，热路径不再线性扫
+			void BuildDescTable() noexcept;
 			// 接受上限：0 配值时按最宽一条流的 max_packet_size + 外层最坏 41 兜底
 			uint64_t OuterLimit() const noexcept;
 			uint64_t OuterLimitFor(uint8_t stream_id) const noexcept;
@@ -116,28 +117,32 @@ namespace clv
 			bool Resync(uint64_t* found);
 			void FeedFrames(const ParsedPacket& p);
 			void DrainAssemblers(bool flush_all);
+			// 把一次喂包的计数增量累加进全局统计
+			void Absorb(const FrameStats& d) noexcept;
 			ContainerErr ReadStructures();
 			void ReadIndex();
 			void WalkExtChains();
 
-			ByteSourceIf* src_;
-			ReaderConfig cfg_;
+			ByteSourceIf* source_;
+			ReaderConfig config_;
 			FileHead head_;
-			std::vector<StreamDesc> descs_;
-			std::vector<ExtRecord> exts_;
-			std::vector<bool> usable_;							   // 下标 = stream_id
-			std::vector<std::unique_ptr<FrameAssembler>> asms_;	   // 下标 = stream_id
+			std::vector<StreamDesc> descriptors_;
+			std::vector<ExtRecord> ext_records_;
+			std::vector<bool> usable_;									 // 下标 = stream_id
+			std::vector<StreamDesc*> desc_by_id_;						 // 下标 = stream_id；元素指向 descriptors_ 内
+			std::vector<std::unique_ptr<FrameAssembler>> assemblers_;	 // 下标 = stream_id
 
 			uint64_t area_start_ = 0;
 			uint64_t area_end_ = 0;
 			uint64_t pos_ = 0;
-			std::vector<uint8_t> win_;
-			size_t off_ = 0;
+			std::vector<uint8_t> window_;
+			size_t window_off_ = 0;
 
+			// 一次喂包最多产出 2 帧，且 NextFrame 每轮先取走一帧，所以这里始终只有个位数条目
 			std::vector<ReassembledFrame> pending_;
 			bool done_ = false;
 
-			ReaderStats st_;
+			ReaderStats stats_;
 			std::vector<IndexEntry> index_;
 			std::vector<uint64_t> entry_ticks_;
 			bool index_valid_ = false;

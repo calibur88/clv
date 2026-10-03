@@ -49,8 +49,8 @@ namespace clv::platform::win32
 
 		private:
 
-		HANDLE m_handle = INVALID_HANDLE_VALUE;
-		int m_mode = -1;	// 打开时定死的能力侧：Read/Write 门控与 Flush 的 no-op 判定用它
+		HANDLE handle_ = INVALID_HANDLE_VALUE;
+		int mode_ = -1;	   // 打开时定死的能力侧：Read/Write 门控与 Flush 的 no-op 判定用它
 	};
 
 }	 // namespace clv::platform::win32

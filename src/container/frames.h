@@ -45,7 +45,7 @@ namespace clv
 		{
 			public:
 
-			explicit FrameAssembler(uint8_t stream_id) noexcept: sid_(stream_id) {}
+			explicit FrameAssembler(uint8_t stream_id) noexcept: stream_id_(stream_id) {}
 
 			/* 喂入一个已解析的包；把本次产出的帧追加到 emitted（0 / 1 / 2 个）。
 			 * 返回值就是追加的帧数。 */
@@ -54,27 +54,32 @@ namespace clv
 			// 流结束或重同步失败时调用：还在攒的残帧按 incomplete 出帧，不静默丢内容
 			size_t Flush(std::vector<ReassembledFrame>& emitted);
 
-			const FrameStats& Stats() const noexcept { return st_; }
+			const FrameStats& Stats() const noexcept { return stats_; }
+
+			/* 一次喂包引起的计数增量，供上层累加到全局统计：
+			 * Delta(喂包前的 Stats(), 喂包后的 Stats())。 */
+			static FrameStats Delta(const FrameStats& before, const FrameStats& after) noexcept;
 
 			private:
 
 			struct Fragment
 			{
-				uint64_t index;
+				uint64_t index = 0;
 				std::vector<uint8_t> payload;
 			};
 
 			// 开新帧前收掉上一帧
 			void CloseOpenFrame(bool got_last, uint64_t expected_total, std::vector<ReassembledFrame>& out);
 
-			uint8_t sid_ = 0;
-			FrameStats st_;
+			uint8_t stream_id_ = 0;
+			FrameStats stats_;
 			bool open_ = false;
-			bool key_ = false;
+			bool is_keyframe_ = false;
 			uint64_t dts_ = 0;
 			int64_t pts_ = 0;
 			uint64_t next_expected_ = 0;
-			std::vector<Fragment> frags_;
+			// 按 index 升序维护（插入即定位），所以重复检测与落位都是二分，收口时不必再排序
+			std::vector<Fragment> fragments_;
 		};
 
 	}	 // namespace container

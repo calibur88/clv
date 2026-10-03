@@ -57,7 +57,7 @@ namespace
 		body.push_back(0x00);	 // pts_delta = 0
 		body.push_back(0x80);	 // payload_size = 0，非最短：占两字节
 		body.push_back(0x00);
-		body.push_back(0x00);			  // ext_len = 0
+		body.push_back(0x00);			  // ext_len_varint = 0
 		body.insert(body.end(), 4, 0);	  // crc32 占位
 
 		std::vector<uint8_t> bytes;

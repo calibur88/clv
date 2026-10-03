@@ -2,13 +2,15 @@
  *
  * 日志后端的 spdlog 实现（clv::backend::spdlog）。
  *
- * m_impl 用 void* 而不是 shared_ptr 成员：spdlog 的头只出现在 .cpp 里，第三方不越过这一层。
+ * spdlog 的头只出现在 .cpp 里：这里只前置声明 Impl，宿主看不到任何 spdlog 类型。
  * 自持 logger 实例、不进 spdlog 注册表，因此 flush 策略必须走成员级 flush_on。
  */
 #ifndef CLV_BACKEND_SPDLOG_LOGGER_H
 #define CLV_BACKEND_SPDLOG_LOGGER_H
 
 #include "../impl_logger.h"
+
+#include <memory>
 
 namespace clv::backend::spdlog
 {
@@ -28,7 +30,9 @@ namespace clv::backend::spdlog
 
 		private:
 
-		void* m_impl = nullptr;
+		struct Impl;
+
+		std::unique_ptr<Impl> impl_;
 	};
 
 }	 // namespace clv::backend::spdlog

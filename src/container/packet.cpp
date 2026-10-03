@@ -141,7 +141,7 @@ namespace clv
 			out->is_last_fragment = (out->flags & static_cast<uint8_t>(PacketFlagBit::kLastFragment)) != 0;
 
 			// 游标覆盖 stream_id 到 crc32 末（长度 = total_size），末尾 4 字节即 crc32，
-			// 这样 payload_size 仲裁式可以直接写成「剩余 = payload_size + ext_len + 4」
+			// 这样 payload_size 仲裁式可以直接写成「剩余 = payload_size + ext_len_varint + 4」
 			Cursor c(buf + 4, total_size);
 			if (! c.U8(&out->stream_id)) return PacketParse::kFieldFail;
 
@@ -153,19 +153,19 @@ namespace clv
 			if (! ReadVarintField(c, &out->dts_delta)) return PacketParse::kFieldFail;
 			if (out->IsFrameFirst() && ! ReadZigZagField(c, &out->pts_delta)) return PacketParse::kFieldFail;
 			if (! ReadVarintField(c, &out->payload_size)) return PacketParse::kFieldFail;
-			if (! ReadVarintField(c, &out->ext_len)) return PacketParse::kFieldFail;
+			if (! ReadVarintField(c, &out->ext_len_varint)) return PacketParse::kFieldFail;
 
-			// payload_size 仲裁式的等价形：剩余 = payload_size + ext_len + crc32(4)。
+			// payload_size 仲裁式的等价形：剩余 = payload_size + ext_len_varint + crc32(4)。
 			// 两者同源同值，写成剩余式是因为字段长度都已按实际 varint 消费掉。
 			//
 			// 失败时上层跳包只认这里解码出的 total_size：包边界由 total_size 自证，
 			// 不得回头按字节形态找「下一个像包头」的位置来推断起点——那是重同步的活，
 			// 只有包头不成立才允许走。
-			if (out->payload_size > c.Remain() || out->ext_len > c.Remain()) return PacketParse::kFieldFail;
-			if (out->payload_size + out->ext_len + 4u != c.Remain()) return PacketParse::kFieldFail;
+			if (out->payload_size > c.Remain() || out->ext_len_varint > c.Remain()) return PacketParse::kFieldFail;
+			if (out->payload_size + out->ext_len_varint + 4u != c.Remain()) return PacketParse::kFieldFail;
 
 			if (! c.CopyTo(out->payload, static_cast<size_t>(out->payload_size))) return PacketParse::kFieldFail;
-			if (! c.CopyTo(out->ext, static_cast<size_t>(out->ext_len))) return PacketParse::kFieldFail;
+			if (! c.CopyTo(out->ext, static_cast<size_t>(out->ext_len_varint))) return PacketParse::kFieldFail;
 
 			const uint8_t* dummy = nullptr;
 			if (! c.Take(4, &dummy)) return PacketParse::kFieldFail;

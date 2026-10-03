@@ -9,6 +9,7 @@
 #ifndef CLV_CONTAINER_IO_H
 #define CLV_CONTAINER_IO_H
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -44,11 +45,12 @@ namespace clv
 			{
 				if (data == nullptr && n != 0) return false;
 				if (pos_ + n > buf_.size()) buf_.resize(pos_ + n, 0);
-				for (size_t i = 0; i < n; ++i) buf_[pos_ + i] = data[i];
+				if (n != 0) std::copy_n(data, n, buf_.begin() + static_cast<std::ptrdiff_t>(pos_));
 				pos_ += n;
 				return true;
 			}
 
+			// 只允许落在已有内容内或恰好末尾，不支持越尾预留空洞
 			bool Seek(uint64_t pos) override
 			{
 				if (pos > buf_.size()) return false;
@@ -73,14 +75,14 @@ namespace clv
 		{
 			public:
 
-			MemorySource(const uint8_t* data, size_t size) noexcept: p_(data), n_(size) {}
+			MemorySource(const uint8_t* data, size_t size) noexcept: data_(data), size_(size) {}
 
-			explicit MemorySource(const std::vector<uint8_t>& v) noexcept: p_(v.data()), n_(v.size()) {}
+			explicit MemorySource(const std::vector<uint8_t>& v) noexcept: data_(v.data()), size_(v.size()) {}
 
 			bool Seek(uint64_t pos) override
 			{
-				if (pos > n_) return false;
-				i_ = static_cast<size_t>(pos);
+				if (pos > size_) return false;
+				pos_ = static_cast<size_t>(pos);
 				return true;
 			}
 
@@ -88,20 +90,20 @@ namespace clv
 			{
 				if (got == nullptr) return false;
 				if (data == nullptr && n != 0) return false;
-				const size_t avail = n_ - i_ < n ? n_ - i_ : n;
-				for (size_t k = 0; k < avail; ++k) data[k] = p_[i_ + k];
-				i_ += avail;
+				const size_t avail = size_ - pos_ < n ? size_ - pos_ : n;
+				if (avail != 0) std::copy_n(data_ + pos_, avail, data);
+				pos_ += avail;
 				*got = avail;
 				return true;
 			}
 
-			uint64_t Size() override { return n_; }
+			uint64_t Size() override { return size_; }
 
 			private:
 
-			const uint8_t* p_ = nullptr;
-			size_t n_ = 0;
-			size_t i_ = 0;
+			const uint8_t* data_ = nullptr;
+			size_t size_ = 0;
+			size_t pos_ = 0;
 		};
 
 	}	 // namespace container

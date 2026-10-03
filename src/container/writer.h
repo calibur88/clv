@@ -71,8 +71,6 @@ namespace clv
 			// 该流被平移掉的原始起点（首帧 dts）；没出过帧返回 0
 			int64_t StreamShift(uint8_t stream_id) const noexcept;
 
-			uint64_t PacketCount() const noexcept { return packets_; }
-
 			private:
 
 			enum class Phase : unsigned char
@@ -106,10 +104,12 @@ namespace clv
 			const StreamState* Find(uint8_t stream_id) const noexcept;
 
 			ByteSinkIf* sink_;
-			WriterConfig cfg_;
+			WriterConfig config_;
 			Phase phase_ = Phase::kStreams;
 			std::vector<StreamState> streams_;
-			std::vector<ExtItem> exts_;
+			// 下标 = stream_id，值 = streams_ 下标，-1 表示未登记；push_back 不改变已有下标，故各阶段都可用
+			std::vector<int> by_id_;
+			std::vector<ExtItem> ext_items_;
 			std::vector<IndexEntry> index_;
 			uint64_t packets_ = 0;
 			uint64_t frames_ = 0;

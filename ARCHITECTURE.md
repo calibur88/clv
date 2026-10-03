@@ -74,13 +74,14 @@ CLV/
 ├── tests/                    # 单一可执行 clv_tests，只吃公开 C ABI（core / api / container 三组）
 ├── demo/                     # 示例源码（core.c 地基层 + container.c 容器层）+ 操作手册
 ├── assets/                   # 入库测试素材：README + fixtures/ 三份确定性 .clv
+├── docs/                     # 格式规范正文（容器规范）
 ├── script/                   # 仓库内所有 Python 工具的入口（不参与 CMake 构建）
 └── third-party/              # 第三方源码：spdlog、googletest
 ```
 
 | 目录 | 用途 | 是否入库 |
 |---|---|---|
-| `include/` `src/` `platform/` `backends/` `cmake/` `tests/` `demo/` `assets/` `script/` `third-party/` | 源码、素材与构建 | 是 |
+| `include/` `src/` `platform/` `backends/` `cmake/` `tests/` `demo/` `assets/` `docs/` `script/` `third-party/` | 源码、素材、文档与构建 | 是 |
 | `build/` | CMake 产物、`build/_install`（第三方安装前缀） | 否 |
 | `demo_local/` | 本地产物区：`bin/` 只放可执行（每次构建先清空再投递）、`src/` 是 `demo/` 的同步副本、根上放示例跑出来的文件 | 否 |
 | `compile_commands.json` | 移动到仓库根供 clangd 读取，命令里带本机绝对路径 | 否 |
@@ -119,6 +120,8 @@ CLV/
 - `platform/` 与 `backends/` 不知道彼此存在，由 `src/core/` 组合。
 - 实现层接口（`platform/fileio/impl_fileio.h`、`backends/impl_logger.h`）的返回值取值域与公开错误枚举**一致**，实现层不得自创语义、不得把系统错误码直接透出——映射责任在后端内部。
 - 命名：公开符号 `CLV_*`（SDL 风格）；命名空间 `clv` / `clv::core` / `clv::platform::{win32,linux_,macos}` / `clv::backend::{spdlog,null}`。`linux_` 带尾下划线是因为 `linux` 是部分编译器的预定义宏，裸用会打架。
+- 实现层命名全仓一套：类型与函数 `PascalCase`，数据成员一律尾下划线 `handle_`（不用 `m_` / `s_` 这类前缀记法），
+  枚举值与文件级常量 `kXxx`。这一条同样约束 `platform/` 与 `backends/`，新增后端不得另立风格。
 
 ### 数据流
 
@@ -176,6 +179,8 @@ python script/format_all.py                                # C/C++ 走 .clang-fo
 | 文档 | 说明 |
 |---|---|
 | `README.md` | 使用者入口：安装、快速开始、公开接口、使用约定、构建与验收 |
+| `API.md` | 公开 C ABI 逐函数说明：句柄与错误码约定、入参出参语义、最小示例 |
+| `docs/容器规范.md` | `.clv` 字节格式的权威规范：布局、字段值域、时间模型、分片与容错 |
 | `ARCHITECTURE.md` | 本文件：分层、依赖、数据流、构建组织、现状 |
 | `CHANGE.log` | 版本演进与兼容声明 |
 | `include/CLV_*.h` | 接口契约正文（头注释即规范） |
