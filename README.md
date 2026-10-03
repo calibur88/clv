@@ -56,6 +56,8 @@ Windows 控制台上要正确显示中文，调用方先设码页：`SetConsoleO
 
 ## 公开接口
 
+逐个函数的签名、入参出参语义、错误码表与最小示例见 `API.md`；`.clv` 的字节格式规则见 `docs/容器规范.md`。
+
 | 头 | 函数 | 一句话 |
 |---|---|---|
 | `CLV_Version.h` | `CLV_VersionString` / `CLV_VersionMajor` / `CLV_VersionMinor` / `CLV_VersionPatch` | 版本查询，字符串带预发布后缀 |
@@ -128,6 +130,8 @@ Windows 控制台上要正确显示中文，调用方先设码页：`SetConsoleO
 | 文档 | 内容 |
 |---|---|
 | `README.md` | 本文件：安装、快速开始、公开接口、使用约定、构建与验收 |
+| `API.md` | 公开 C ABI 逐函数说明：句柄与错误码约定、入参出参语义、最小示例、验收清单 |
+| `docs/容器规范.md` | `.clv` 字节格式规范：布局、字段值域、时间模型、分片规则与容错口径 |
 | `ARCHITECTURE.md` | 工程结构、分层与数据流、构建系统组织方式、当前未落地项 |
 | `CHANGE.log` | 版本演进记录与版本兼容声明 |
 | `include/CLV_*.h` | 六个公开头的注释即接口契约正文（`CLV_Container.h` 标 v0 实验性） |
