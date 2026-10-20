@@ -1,6 +1,6 @@
 /* packet.h
  *
- * 数据包编解码。分片帧的每片都自带完整外层头，字段序与判据：
+ * 数据包编解码。分片帧的每片都自带完整外层头，字段序与校验规则：
  *
  *   total_size(LE32) | stream_id | flags | [fragment_index] | dts_delta | [pts_delta]
  *   | payload_size | ext_len_varint | payload | ext_data | crc32
@@ -23,6 +23,13 @@ namespace clv
 	namespace container
 	{
 
+		/* 声明的 total_size 下界 = 最小可成立包长：total_size 自 stream_id 起算、含 crc32，
+		 * 定长项 stream_id 1 + flags 1 + crc32 4，恒出的变长项 dts_delta / payload_size / ext_len_varint
+		 * 各至少 1 字节 ⇒ 合计 9；fragment_index 与 pts_delta 再按携带规则各自至少加 1，只增不减。
+		 * 低于此界的声明放不下字段区，一律判包头不成立。严格解析、重同步候选扫描、
+		 * 包区长度校验三处同用这一界。 */
+		constexpr uint32_t kMinTotalSize = 9;
+
 		enum class PacketFlagBit : uint8_t
 		{
 			kKeyframe = 1u << 0,
@@ -41,7 +48,7 @@ namespace clv
 			kHeadInvalid,	 // total_size < 9 或读不到边界，或 flags 指纹不符 → 包头不成立
 			kTooLarge,		 // 包合法但超出运行时接受上限，能跳就跳，跳不动才重同步
 			kCrcFail,		 // CRC 不过 → 丢本包 + warn + 跳 total_size
-			kFieldFail,		 // 字段区解析失败 / 非最短形式 / payload_size 仲裁式不符 → 同上
+			kFieldFail,		 // 字段区解析失败 / 非最短形式 / payload_size 与剩余长度不符 → 同上
 		};
 
 		// 写方输入

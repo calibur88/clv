@@ -1,6 +1,6 @@
 /* linux_fileio.h
  *
- * IFileIO 的 Linux 实现：stdio（fopen / fread / fwrite / fseek / ftell / fflush）。
+ * FileIO（同名基类见 platform/fileio/impl_fileio.h）的 Linux 实现：stdio（fopen / fread / fwrite / fseek / ftell / fflush）。
  * 路径按字节序直传，不做编码转换——POSIX 侧文件名本就是字节串，UTF-8 天然成立。
  */
 #ifndef CLV_PLATFORM_LINUX_FILEIO_H

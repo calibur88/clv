@@ -1,0 +1,160 @@
+# assets/fixtures 素材溯源
+
+本目录里凡**来自仓库外**的素材，都在这里登记来源、整件 SHA-256、取用命令与工具版本。
+仓库内自制的 `.clv` 素材（`minimal.clv` / `neg_dts.clv` / `subtitle_ext4.clv`）由
+`scripts/gen_fixtures.py` 现场生成，冻结值见 `assets/README.md`「冻结值」一节（该表按当前实码校正，仅登记本轮实际变更，不保留非本轮历史更新记录及翻新/改写时间记录；作废的旧组值留痕不抹行），不在本文件范围内。
+
+## 三支实拍示例视频（2026-10-10 入库）
+
+来源：`https://samplelib.com/mp4/`。**许可定性 = 站点自定义宽松许可**（不是 CC0 / 不是 CC-BY / 不是 MIT，
+本文件不把它写成任何一种具名许可）。提供方在站点页面上的原文关键句：
+「free of charge and without license restrictions」与「do whatever you want」，
+并写明「content created wholly for this project」⇒ **内容系站点原创**，入库不附额外许可声明。
+逐件 URL：
+
+- `sample-10s.mp4` ← `https://samplelib.com/mp4/sample-10s.mp4`
+- `sample-20s.mp4` ← `https://samplelib.com/mp4/sample-20s.mp4`
+- `sample-30s.mp4` ← `https://samplelib.com/mp4/sample-30s.mp4`
+
+下载方式（原样可复制）：
+
+```
+curl -L -o assets/fixtures/sample-10s.mp4 https://samplelib.com/mp4/sample-10s.mp4
+curl -L -o assets/fixtures/sample-20s.mp4 https://samplelib.com/mp4/sample-20s.mp4
+curl -L -o assets/fixtures/sample-30s.mp4 https://samplelib.com/mp4/sample-30s.mp4
+```
+
+整件属性与哈希（ffprobe + sha256 实测，2026-10-10）：
+
+| 文件 | 字节数 | 视频流 | 帧率 | 帧数 | 音频流 | 容器时长 | SHA-256 |
+|---|---|---|---|---|---|---|---|
+| `sample-10s.mp4` | 5 485 935 | H.264 1920×1080 yuv420p | 30000/1001 | 303 | AAC 44 100 Hz 2 ch，441 包 | 10.216 009 s | `be998e5fed5a9065bbccdb097884794ebd2492cb261ec40948e7a846af5724b8` |
+| `sample-20s.mp4` | 11 815 175 | H.264 1920×1080 yuv420p | 30000/1001 | 605 | AAC 44 100 Hz 2 ch，875 包 | 20.293 991 s | `23b9d25718bc2b75200149b45b5d0174b4028f95431e06f4a49178a81d5969b6` |
+| `sample-30s.mp4` | 21 657 943 | H.264 1920×1080 yuv420p | 30/1 | 911 | AAC 44 100 Hz 2 ch，1 312 包 | 30.440 998 s | `500afe4eeb535c5ecd1c205e18be8c3db97dce216088e57fdad8e08a3a4028c3` |
+
+帧数与时长互核：`sample-10s` 303 帧 ÷ (30000/1001) = 10.199 9 s，容器时长 10.216 009 s 的余量来自
+音频轨（AAC  priming/尾声）；`sample-30s` 911 ÷ 30 = 30.366 7 s，同理。视频侧帧数为准。
+
+## 取帧（编解码跑次用）
+
+```
+ffmpeg -y -v error -frames:v 48 -i assets/fixtures/sample-10s.mp4 -pix_fmt yuv420p -f rawvideo window.yuv
+```
+
+窗口 = **该视频的前 48 帧**，不设 `-ss`： seek 落点要经过容器时间轴换算，留它就是把不确定性引进基准。
+48 这个窗口口径只有一处来由 = 既有的九档画质基线取的就是 48 帧，横向只换素材、不换窗口。
+
+## 色彩标记：源件全部为 unknown
+
+ffprobe 读三支的 `color_range` / `color_space` / `color_transfer` / `color_primaries` **四项都是
+unknown**——提供方没写。所以对这些素材的测量口径固定为：
+
+- 按 8-bit yuv420p、有限范围（Y ∈ [16, 235]、Cb/Cr ∈ [16, 240]）解释，不做任何色彩空间转换，
+  不对源做范围缩放；编码器收到什么字节就编什么字节。
+- 因此**跨视频的 PSNR 绝对值不可横向比较**（源的色域与传递特性未知且三支未必相同），
+  只允许「同一视频、不同量化档」的纵向比较。
+
+## 一支带 ID3v2 标签与封面的示例音频（2026-10-16 入库）
+
+来源：`https://samplelib.com/mp3/sample-15s-id3v2.mp3` —— 与上面三支示例视频同一提供方，许可口径同第一节。
+站点页原文（逐字三条）：「In short - you are welcome to do whatever you want!」；
+「Free to use — After downloading from the sample library, do whatever you want with the files (change,
+supplement, use as you like)」；「Original content — All content presented on this site, including audio and
+video content, was created specifically and wholly for this project」。⇒ **许可定性 = 站点自定义宽松许可**
+（不是 CC0 / 不是 CC-BY / 不是 MIT，本文件不把它写成任何一种具名许可）。
+
+入库两件（**原件也留**，这样转换配方可独立复核）：
+
+| 件 | 字节 | SHA-256 |
+|---|---|---|
+| `sample-15s-id3v2.mp3`（上游原件） | 369 869 | `2b372f993ad7a8c65e64a5bc000f2b21d0a32e802f61ba416515e8782c0cb55c` |
+| `sample-15s.flac`（本地转换件） | 2 080 768 | `79d722626464f7703f06aad8963809255b3d1e36778ab6bcb03be3a6e2ebefe0` |
+
+两条逐字节对平都是 2026-10-16 实跑：① 现下该 URL（走仓库级 `.git/config` 里那条代理）与入库原件**同哈希**；
+② 按下述命令重跑一次转换，产物与入库 `.flac` **同哈希**。
+
+转换命令（**保留 mp3 的元数据**：`-map_metadata 0` 搬注释、`-c:v copy` + `-disposition:v attached_pic` 搬封面）：
+
+```
+ffmpeg -y -i sample-15s-id3v2.mp3 -map 0:a:0 -map 0:v:0 -c:a flac -c:v copy \
+       -disposition:v attached_pic -map_metadata 0 sample-15s.flac
+```
+
+件内事实（ffprobe 实测，不依赖 CLV）：FLAC **44 100 Hz / 2 ch / 15.000 s**、`bits_per_raw_sample = 24`；
+一块 300 × 300 的 attached picture（MJPEG）；**11 条 Vorbis 注释**（键名与值按块内顺序，与
+`tests/win32/api/test_audio_metadata_view.cpp` 里 `AudioMetadataView.SampleTrack*` 用例的逐条期望表对平）=
+`title=Sample Track`、`artist=Samplelib`、`album=Test Files`、`ALBUMARTIST=Samplelib`、`date=2026`、
+`TRACKNUMBER=3/12`、`genre=Electronic`、`DESCRIPTION=Sample MP3 with full ID3v2.3 tags and cover art`、
+`composer=Samplelib Generator`、`publisher=samplelib.com`、`encoder=Lavf63.7.100`。音频电平（`volumedetect`）mean −21.7 dB / max −5.9 dB ⇒ 可听。
+
+**位深那一格别读成高解析**：24 bit 是 ffmpeg 从 192 kb/s mp3 解码后的默认输出宽度，这份件的有效精度仍是 mp3 本身。
+登记它的理由是「注释块 + 封面块 + 24 bit 的 STREAMINFO」三形同时出现，且权利面干净。
+
+**定性**：音频元数据解读面（`CLV_AudioParseVorbisComment` / `CLV_AudioParsePicture` / `CLV_AudioSplitMetaBlock`）
+的**真件输入**，用例见 `tests/win32/api/test_audio_metadata_view.cpp` 的 `AudioMetadataView.SampleTrack*` 三例；
+同时给双轨演示件供可听音频腿。块大小 47（14 074 帧 × 47 + 末帧 22 = 661 500 样本，与 STREAMINFO 的
+`total_samples` 相符）既不是 2 的幂、也低于 24 bit 那一档的子集下限 72 —— 真件的价值正在于此，
+手拼字节铺不出这种形。
+
+## 双轨演示件 `demo_av_1080p_q32.clv`（2026-10-16 入库）
+
+**产出它的链**：抽帧与抽音频走 ffmpeg，编码与封装走本库公开面（`CLV_Video.h` / `CLV_Audio.h` / `CLV_Container.h`
+三个公开头，无内部件）⇒ 它同时是**编码侧内核的真实闭环件**。
+
+规格：1 920 × 1 080、**30 fps**（源 `sample-30s.mp4` 帧率 30/1 为整数，正对视频流的 `1/30` 时间基）、
+105 帧 = 3.5 s、8-bit I420、有损 `q = 32`、`quant_precision = 7`、I 帧间隔 15、系数载体取法 1 档（构建默认档）。
+系数载体有两种写法：定长档与法 1 档（先写结束标志 EOB，再用位数递增的 Exp-Golomb 编码写幅值）；具体用哪一档由视频帧头第 5 到第 7 位声明，本库默认法 1。
+**单文件双流单段**：视频流 `stream_id = 0`（挂 `ext_type = 3` 参数块）+ 音频流 `stream_id = 1`
+（挂 `ext_type = 5` FLAC STREAMINFO 34 B），143 包（105 视频 + 38 音频）按 plan 里的 seed 决定的序交错。
+体积 **42 137 405 B = 40.2 MiB** ⇒ 压在 50 MiB 那条线内。
+
+配方（Windows 侧路径一律正斜杠；驱动件在库内的 `scripts/mtav.cpp`，但不进构建面，见下方那条局限）：
+
+```
+ffmpeg -y -i assets/fixtures/sample-30s.mp4 -map 0:v:0 -frames:v 300 -pix_fmt yuv420p -f rawvideo v300.yuv
+ffmpeg -y -stream_loop 3 -i assets/fixtures/sample-15s.flac -map 0:a:0 -c:a pcm_s16le -f s16le a60.pcm
+mtav enc plan.txt out/ && mtav mux plan.txt out/
+```
+
+```
+W 1920
+H 1080
+QP 7
+SEED 20261016
+BUDGET_V 48000000
+BUDGET_A 4000000
+MAT s30 <v300.yuv 绝对路径> <a60.pcm 绝对路径> 300 2646000
+UNIT s30 0 105 32 15
+```
+
+**音频腿走的是循环材料**：`a60.pcm` = 上面那支 FLAC 解出的 16-bit PCM 复制四遍（`-stream_loop 3`），
+10 584 000 B / SHA-256 `3b5e70e57d9faa8e5a2f7da0ff6bba8ebcead8bb2e3706f5e3badccf355496c0`，四份逐字节相同。
+本件视频只用前 3.5 s，所以接上循环后产物**逐字节未变**（`cmp` 两份产物无差异）——留这个接法是为了让
+「视频长过音频」随时可做，不必换素材。已另跑过一版越缝判别（480 帧 = 16.0 s 的产物，不在入库件之列）：
+那份的音频取到 705 600 样本（越过单遍 661 500 的缝），解回 2 822 400 B **与循环材料逐字节全等**，其中越过缝的 176 400 B 与第一遍同偏移相同。
+
+入库前实测（库 = 当前默认构型 `clv.dll`，SHA-256 前缀 `891ba182`）：
+
+| 项 | 值 |
+|---|---|
+| 编码 | `ENC_DONE vpkt=105 apkt=38 segs=1 vbytes=41 803 030 abytes=328 840` ⇒ 398 124 B/视频帧 |
+| 封装 | `MUX seg=0 nv=105 na=38 pkts=143 file=42 137 405 vfirst=0 vlast=104 afirst=0 alast=151 552` |
+| 端到端解回 | `DEC_DONE vframes=105 vbytes=326 592 000 asamples=154 350 abytes=617 400 vdrop=0 adrop=0 flushed=1` |
+| 音频往返 | 解回 617 400 B 与源 PCM 前 3.5 s **逐字节全等**（FLAC 路径无损） |
+| 画质（解回对源，逐帧累计） | Y 40.090 dB / U 45.249 dB / V 47.664 dB / 合成 (4Y+U+V)/6 = 42.212 dB |
+| 独立读方 | `clv_demo_container.exe info`：结构版本 2.0、流数 2、扩展块 2、143 包、`duration_ticks 3 747 744 000 ÷ 1 081 080 000 = 3.466 7 s` |
+| 目视 | 第 0 帧与第 104 帧出图：公园林荫道，色彩与边缘正常、尾部无坏块，两帧之间车辆位移真实 |
+| 确定性 | `enc` 重跑 `store.bin` 同哈希 `e2c58b46853df3a4863ed3a2ddb7a1c5ea6df4a7369efa2a80c02b0cdbe1c79c`；`mux` 重跑产物逐字节相同 |
+
+**为什么只有 3.5 s**：50 MB ÷ 实测 398 124 B/帧 = 125 帧，取 105 帧（= 7 个 `ird=15` 的整 GOP）留余量。
+同素材实测载荷随 `q` 的走势（`quant_precision = 7` ⇒ 合法域 1..127）：q=32 → 415 454 B/帧、q=48 → 324 572、
+q=64 → 271 476、q=96 → 200 558、q=127 → 162 264（32 帧窗口）。⇒ **1080p 下音频永远不是短的那一腿**：
+最粗档也只塞得下 277 帧 = 9.2 s，而音频源有 15 s；要让视频长过 15 s 得放宽到 ≥ 73 MB。
+
+**一条局限，登记在此不藏**：上面那两条 `mtav` 命令的驱动件在库内的 `scripts/mtav.cpp`，但不进构建面（没有 CMake 目标构建它）⇒
+复现本件仍需手工编译该件；**本件的复现力 = 「命令 + 输入哈希 + 产物哈希」，不等于「克隆仓库就能重跑」**。
+
+## 工具版本
+
+读容器 / 抽帧：`ffmpeg` 与 `ffprobe`，`N-127054-g9d3f0f2c58-20261001`（GPL 静态构建，win64）。
+哈希：`sha256sum`（GNU coreutils）。

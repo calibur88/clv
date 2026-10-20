@@ -1,6 +1,6 @@
 /* win32_fileio.h
  *
- * IFileIO 的 Windows 实现：Win32 文件 API（CreateFileW / ReadFile / WriteFile /
+ * FileIO（同名基类见 platform/fileio/impl_fileio.h）的 Windows 实现：Win32 文件 API（CreateFileW / ReadFile / WriteFile /
  * SetFilePointerEx / GetFileSizeEx / FlushFileBuffers）。
  *
  * 路径一律走 W 系列：入参是 UTF-8 字节串，先 MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS)

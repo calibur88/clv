@@ -1,10 +1,14 @@
+// 平台判定先取兜底推导件：CMake 没传 CLV_PLATFORM_* 宏时（手编 / IDE 索引 / clang-tidy）由它按
+// 编译器目标宏推导，守卫与 impl_fileio.cpp 的分派才会判到同一个平台。
+#include "platform/platform.h"
+
 // 自守卫：非本平台整文件编译为空单元。
 #if defined(CLV_PLATFORM_LINUX)
 
+	#include "CLV_File.h"
 	#include "linux_fileio.h"
 
-	#include "CLV_File.h"
-	#include "platform/platform.h"
+	#include <limits>
 
 namespace clv::platform::linux_
 {
@@ -72,7 +76,9 @@ namespace clv::platform::linux_
 	{
 		if (fp_ == nullptr) return CLV_FILE_INVALID_HANDLE;
 
-		// 本项目只出 64 位 off_t / long 的平台（Linux 与 macOS 的 LP64），long 装得下整个偏移
+		// fseek 的位移量是 long：本平台是 64 位，但超过 LONG_MAX 的偏移窄化后会被当负数用，
+		// 越界一律判失败，不交给窄化后的静默错位。
+		if (offset > static_cast<uint64_t>(std::numeric_limits<long>::max())) return CLV_FILE_SEEK_FAILED;
 		if (std::fseek(fp_, static_cast<long>(offset), SEEK_SET) != 0) return CLV_FILE_SEEK_FAILED;
 
 		const long position = std::ftell(fp_);

@@ -3,7 +3,7 @@
 
 #include <memory>
 
-// 后端选择属业务配置（CMake option），与平台链路无关。
+// 后端由 CMake option 选：定义 CLV_LOGGER_USE_SPDLOG 用 spdlog 后端，否则用 null 后端。
 #if defined(CLV_LOGGER_USE_SPDLOG)
 	#include "backends/spdlog/logger.h"
 #else
@@ -13,17 +13,19 @@
 namespace clv::core
 {
 
-	std::unique_ptr<backend::Logger> MakeLogger()
-	{
-#if defined(CLV_LOGGER_USE_SPDLOG)
-		return std::make_unique<::clv::backend::spdlog::SpdlogLogger>();
-#else
-		return std::make_unique<::clv::backend::null::NullLogger>();
-#endif
-	}
-
 	namespace
 	{
+
+		// 内部助手一律留在这个匿名命名空间里：本件只经 C ABI 出口对外，
+		// 放在命名空间作用域会给静态件多带一个有外部链接的符号。
+		std::unique_ptr<backend::Logger> MakeLogger()
+		{
+#if defined(CLV_LOGGER_USE_SPDLOG)
+			return std::make_unique<::clv::backend::spdlog::SpdlogLogger>();
+#else
+			return std::make_unique<::clv::backend::null::NullLogger>();
+#endif
+		}
 
 		// 函数内 static：初始化时机在使用点，避开跨翻译单元静态初始化顺序与退出期析构竞态。
 		// C++11 起局部 static 的初始化是线程安全的。
@@ -63,7 +65,7 @@ extern "C" void CLV_LogSetLevel(CLV_LogLevel level)
 
 extern "C" void CLV_LogSetStorage(const char* filepath, size_t rotate_size_kb)
 {
-	// 接口占位：落盘后端待下一轮，调用无效果
+	// 无可见效果：入参一律忽略，不落盘、不改过滤等级
 	(void) filepath;
 	(void) rotate_size_kb;
 }

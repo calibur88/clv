@@ -23,6 +23,11 @@ archive/
 # ── 本地私有 ──
 参考资料/
 /demo_local/
+.workbuddy/
+
+# ── 第三方源码快照（本地拉取与构建，不进 git；构建产物只落 build/_install）──
+third-party/SDL3/
+third-party/flac/
 
 # 本地参考环境（上游源码 / 构建产物 / 便携工具链 / 第三方库 / 实验媒体），整个 temp/ 不入库
 temp/
@@ -34,3 +39,9 @@ compile_commands.json
 
 # ── 编辑器本地配置 ──
 .vscode/
+
+# ── 项目级 Skill 的平台入口目录（真实文件在仓库根 skills/，入口里只放逐件链接，克隆后由 scripts/setup_skills.py 重建）──
+# 忽略行必须带平台目录前缀：写成裸 `skills` 会把仓库根那份唯一事实来源一起忽略掉。
+.qoder/skills
+# 本机工具件落点（clang-format 等）：发行件不得带本机绝对路径，所以这份只在本机存在。
+.clv-tools.local

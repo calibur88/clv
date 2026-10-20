@@ -1,6 +1,6 @@
 /* macos_fileio.h
  *
- * IFileIO 的 macOS 实现：stdio，与 Linux 后端同构但物理隔离（两份文件各自演进，不共享头）。
+ * FileIO（同名基类见 platform/fileio/impl_fileio.h）的 macOS 实现：stdio，与 Linux 后端同构但物理隔离（两份文件各自演进，不共享头）。
  * 路径按字节序直传，不做编码转换，也不做 Unicode 正规化——文件系统侧的 NFD 正规化不属本库承诺。
  */
 #ifndef CLV_PLATFORM_MACOS_FILEIO_H

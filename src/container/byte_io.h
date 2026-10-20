@@ -87,8 +87,6 @@ namespace clv
 				buf_.insert(buf_.end(), p, p + n);
 			}
 
-			size_t Size() const noexcept { return buf_.size(); }
-
 			private:
 
 			std::vector<uint8_t>& buf_;
@@ -109,30 +107,6 @@ namespace clv
 				const uint8_t* at = nullptr;
 				if (! Take(1, &at)) return false;
 				*v = at[0];
-				return true;
-			}
-
-			bool LE16(uint16_t* v) noexcept
-			{
-				const uint8_t* at = nullptr;
-				if (! Take(2, &at)) return false;
-				*v = ReadLE16(at);
-				return true;
-			}
-
-			bool LE32(uint32_t* v) noexcept
-			{
-				const uint8_t* at = nullptr;
-				if (! Take(4, &at)) return false;
-				*v = ReadLE32(at);
-				return true;
-			}
-
-			bool LE64(uint64_t* v) noexcept
-			{
-				const uint8_t* at = nullptr;
-				if (! Take(8, &at)) return false;
-				*v = ReadLE64(at);
 				return true;
 			}
 
@@ -159,13 +133,9 @@ namespace clv
 
 			size_t Used() const noexcept { return pos_; }
 
-			size_t Size() const noexcept { return size_; }
-
 			size_t Remain() const noexcept { return failed_ ? 0 : size_ - pos_; }
 
 			const uint8_t* Base() const noexcept { return data_; }
-
-			bool Failed() const noexcept { return failed_; }
 
 			private:
 

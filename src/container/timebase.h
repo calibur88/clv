@@ -2,7 +2,7 @@
  *
  * 统一时间轴比较与时间基值域。跨流比较只用整数，不转浮点。
  * 128 位整数没有可移植的类型（MSVC 没有 `__int128`，GCC/Clang 的扩展不通用），
- * 因此自带 64×64→128 的无符号乘法与 u128÷u32 长除，全用 32 位分块拼。
+ * 64×64→128 的无符号乘法与 u128÷u32 长除由本模块用 32 位分块拼出。
  */
 #ifndef CLV_CONTAINER_TIMEBASE_H
 #define CLV_CONTAINER_TIMEBASE_H
@@ -38,7 +38,7 @@ namespace clv
 		int CompareUnifiedTick(const StreamTick& a, const StreamTick& b) noexcept;
 
 		// timebase_num / timebase_den 线上各占 8 字节，但值域限 u32 且非零，超出即判结构不成立。
-		// 不封合法集上限（哪些取值「合理」属上层策略，容器层只挡不可表示的值）。
+		// 不封合法集上限：容器层只挡不可表示的值，取值是否合理由上层判。
 		bool TimebaseOk(uint64_t num, uint64_t den) noexcept;
 
 		// 基础时间基：1,081,080,000 ticks/秒。文件头 duration_ticks 用它。

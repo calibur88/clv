@@ -1,13 +1,18 @@
 # CLV Python 工具链依赖清单
 #
 # 位置：项目根目录；venv 也建在项目根目录（.venv/，不追踪）。
-# 当前 script/ 下的工具脚本只用 Python 标准库，无需安装第三方包。
+# 只有下面逐条点名的包是第三方依赖，按「包名==版本」写明并在使用它的脚本条目上注明脚本名。
 #
 # 创建环境：  python -m venv .venv
 # 激活：        .venv\Scripts\activate    (Windows)   或   source .venv/bin/activate (POSIX)
+# 安装：        .venv\Scripts\python.exe -m pip install -r requirements.txt
 #
-# 后续若引入工具依赖，在下面按「包名==版本」逐行写明，并同步到 archive 开发日志。
 # 冒烟验证用的临时工程放在 build/ 下，跑完删除，不进本清单。
 
 # 代码格式化：Python 侧脚本一律 black 默认参数（行宽 88），格式化器只装在本项目 .venv/ 里。
 black==26.5.1
+
+# scripts/gen_video_quant_fixtures.py 与 scripts/gen_synth_sequence.py 都用 numpy：
+# 前者输入块按 8×8 矩阵做正变换（Q.H8 @ x @ Q.H8.T）、误差界取 np.max(np.abs(T - F2))；
+# 后者整套图样按数组语义生成（np.arange / 广播 / 逐段 astype(np.uint8)），逐像素的图样定义就是这些表达式。
+numpy==2.5.3

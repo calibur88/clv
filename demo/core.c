@@ -3,8 +3,8 @@
  * 用法：在 demo_local/ 下跑 ./bin/clv_demo_core，无参数。临时文件建在当前工作目录（路径都写成 ./xxx），跑完即删。
  * 退出码 0 = 全部自动判定项通过；1 = 有失败；人工判定项（第 2、10 项）不计入退出码。
  *
- * 控制台编码由本示例自己设（见 SetupConsoleUtf8）：库只保证按 UTF-8 字节串直投日志消息，
- * 不做代码页转换——不设的话 Windows 控制台按代码页 936 重解读，中文提示全成乱码。
+ * 控制台编码由本示例自己设（见 SetupConsoleUtf8）：库只按 UTF-8 字节串直投日志消息，
+ * 不做代码页转换；Windows 控制台要自己处于 CP_UTF8，中文提示才不按代码页 936 重解读。
  */
 #include "CLV_File.h"
 #include "CLV_Logger.h"
@@ -15,7 +15,7 @@
 #include <string.h>
 
 #if defined(_WIN32)
-	// 示例是消费者侧代码，直接用 Win32 控制台 API；库内的「裸宏只出现在 platform.h」约束管库不管示例
+	// 示例是消费者侧代码，直接用 Win32 控制台 API；platform.h 的裸宏约束只覆盖库内
 	#ifndef WIN32_LEAN_AND_MEAN
 		#define WIN32_LEAN_AND_MEAN
 	#endif
@@ -36,8 +36,8 @@ static const char* const kFileUtf8Name = "./clv_demo_中文路径.txt";
 static int g_failed = 0;
 static int g_manual = 0;
 
-/* 应用侧义务：库只按 UTF-8 字节串直投日志，不做代码页转换，所以控制台码页要自己设成 CP_UTF8，
-   否则本文件的中文提示与第 10 项的文件名会按代码页 936 重解读成乱码。每个入口都要设一次。 */
+/* 应用侧义务：控制台码页要自己设成 CP_UTF8；库只按 UTF-8 字节串直投日志，不做代码页转换。
+   本文件的中文提示与第 10 项的文件名都按 UTF-8 字节出。每个入口都要设一次。 */
 static void SetupConsoleUtf8(void)
 {
 #if defined(_WIN32)
@@ -98,7 +98,7 @@ static void CheckVersion(void)
 {
 	printf("CLV version string : %s\n", CLV_VersionString());
 	printf("CLV version triple : %d.%d.%d\n", CLV_VersionMajor(), CLV_VersionMinor(), CLV_VersionPatch());
-	/* 版本一律与 CLV_VERSION_* 比：写死字面量的话，抬版本号时这份示例会静默判错 */
+	/* 版本一律与 CLV_VERSION_* 宏比，不写字面量 */
 	Report(1, "版本字符串", CLV_VERSION_STRING, CLV_VersionString(),
 		   strcmp(CLV_VersionString(), CLV_VERSION_STRING) == 0 && CLV_VersionMajor() == CLV_VERSION_MAJOR &&
 			   CLV_VersionMinor() == CLV_VERSION_MINOR && CLV_VersionPatch() == CLV_VERSION_PATCH);
@@ -122,8 +122,26 @@ static void CheckWriteThenFlush(void)
 	static const char payload[] = "clv flush check";
 	const size_t len = sizeof(payload) - 1;
 
-	int ok = WriteAll(kFileWrite, CLV_FILE_MODE_WRITE, payload, len);
-	const uint64_t size = ok ? SizeOf(kFileWrite) : 0;
+	CLV_FileError werr = CLV_FILE_OK;
+	CLV_File* w = CLV_OpenFileEx(kFileWrite, CLV_FILE_MODE_WRITE, &werr);
+	int ok = w != NULL;
+	if (ok) ok = CLV_WriteFile(w, payload, len, NULL) == CLV_FILE_OK;
+	if (ok) ok = CLV_FlushFile(w) == CLV_FILE_OK;
+	uint64_t size = 0;
+	if (ok) ok = CLV_FileSize(w, &size) == CLV_FILE_OK;
+	CLV_CloseFile(w);
+
+	CLV_FileError rerr = CLV_FILE_OK;
+	CLV_File* r = CLV_OpenFileEx(kFileWrite, CLV_FILE_MODE_READ, &rerr);
+	if (r != NULL)
+	{
+		if (CLV_FlushFile(r) != CLV_FILE_OK) ok = 0;
+		CLV_CloseFile(r);
+	}
+	else
+	{
+		ok = 0;
+	}
 
 	char expect[32];
 	char actual[32];
@@ -237,8 +255,8 @@ static void CheckReallocSemantics(void)
 
 static void CheckUtf8Path(void)
 {
-	/* 契约：路径是 UTF-8 字节串。Windows 后端转 UTF-16 走 W 系列，中文名才不会被按代码页重解释。
-	   这里刻意不删该文件，留给人对着目录看文件名是否正确；README 的清理步骤负责删。 */
+	/* 契约：路径是 UTF-8 字节串，Windows 后端转 UTF-16 走 W 系列，中文名不按代码页重解读。
+	   该文件不在这里删：文件名字形要对目录核对，删除由 README 的清理步骤负责。 */
 	int ok = WriteAll(kFileUtf8Name, CLV_FILE_MODE_WRITE, "utf8", 4);
 	const uint64_t size = ok ? SizeOf(kFileUtf8Name) : 0;
 

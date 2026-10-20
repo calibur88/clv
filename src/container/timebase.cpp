@@ -85,7 +85,7 @@ namespace clv
 				const uint64_t cur = (rem << 32) | limb[i];	   // rem < den ≤ 2^32，故不溢出
 				const uint32_t part = static_cast<uint32_t>(cur / den);
 				rem = cur % den;
-				if (i == 0 && part != 0) return false;
+				if (i <= 1 && part != 0) return false;
 				q = (q << 32) | part;
 			}
 
@@ -95,3 +95,4 @@ namespace clv
 
 	}	 // namespace container
 }	 // namespace clv
+

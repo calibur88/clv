@@ -4,5 +4,14 @@
 
 # eol=lf 会被下面的规则继承并对二进制生效（实测剥掉 CR，10820 → 10819），故逐类取消 eol。
 # 今后新增二进制资产类型需在此补行，否则会被行尾转换改写。
+# 本批入库素材实测：mp4 / flac 内含 NUL，`text=auto` 已自动判二进制（索引 blob 与盘上字节 hash 相同），
+# 但按上面那条规矩仍逐类显式钉死——素材完整性不该依赖 git 的自动判定。
 *.png binary !eol
+*.jpg binary !eol
+*.jpeg binary !eol
+*.mp4 binary !eol
+*.flac binary !eol
+*.wav binary !eol
+*.pcm binary !eol
+*.yuv binary !eol
 *.clv binary !eol

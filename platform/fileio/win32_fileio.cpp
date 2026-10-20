@@ -1,10 +1,12 @@
+// 平台判定先取兜底推导件：CMake 没传 CLV_PLATFORM_* 宏时（手编 / IDE 索引 / clang-tidy）由它按
+// 编译器目标宏推导，守卫与 impl_fileio.cpp 的分派才会判到同一个平台。
+#include "platform/platform.h"
+
 // 自守卫：非本平台整文件编译为空单元。
 #if defined(CLV_PLATFORM_WINDOWS)
 
-	#include "win32_fileio.h"
-
 	#include "CLV_File.h"
-	#include "platform/platform.h"
+	#include "win32_fileio.h"
 
 	#include <limits>
 	#include <string>

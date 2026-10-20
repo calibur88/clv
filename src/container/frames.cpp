@@ -1,5 +1,7 @@
 #include "frames.h"
 
+#include "../core/log.h"
+
 #include <algorithm>
 #include <utility>
 
@@ -25,7 +27,7 @@ namespace clv
 
 			if (! p.is_fragment)
 			{
-				// 单包帧自成一站：上一帧若还没等到末片，按残帧出帧，不静默吞内容
+				// 单包帧自成完整帧：上一帧若还没等到末片，按残帧出帧，不静默吞内容
 				if (open_) CloseOpenFrame(false, 0, emitted);
 
 				ReassembledFrame f;
@@ -55,6 +57,7 @@ namespace clv
 			{
 				// 帧首包缺失 → 该帧的 dts_delta 无人认领，丢残帧 + warn，时间轴不推进
 				stats_.missing_first_packets++;
+				core::LogWarn("clv container: fragment without its frame's first packet, fragment dropped");
 				return 0;
 			}
 
@@ -114,6 +117,7 @@ namespace clv
 			{
 				// 末片声明的总片数与实收不符：按片序跳变处置（记丢片 + warn），仍不判整文件损坏
 				stats_.fragment_gaps++;
+				core::LogWarn("clv container: last fragment declares more fragments than arrived, frame incomplete");
 			}
 
 			stats_.frames_emitted++;

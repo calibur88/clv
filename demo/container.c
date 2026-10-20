@@ -5,8 +5,12 @@
  *   clv_demo_container <路径>           同上，改写入路径
  *   clv_demo_container info <路径>      只读并 dump 一个已有 .clv
  *
- * 视频流首包故意给源 dts = -40（B 帧前瞻的负初始 DTS）。写方要按首帧把整条流平移到 0 落盘，
+ * 视频流首包给源 dts = -40（B 帧前瞻的负初始 DTS）。写方要按首帧把整条流平移到 0 落盘，
  * 所以 [#04] 期望落盘 dts_delta = 0、pts_delta = 80（= 40 - (-40)，与平移量无关）。
+ *
+ * 扩展块共两条：视频流的 ext_type = 3 参数块（`docs/容器规范.md` 的扩展块一节 —— v2 起每条视频流必带，缺块的流
+ * 被读方记 video_stream_no_param_block 并判该流不可用）与字幕流的 ext_type = 4 样式块。
+ * [#03] 逐条按字节对平，结构 dump 里的扩展块条数也照实打出。
  */
 #include "CLV_Container.h"
 #include "CLV_File.h"
@@ -16,7 +20,7 @@
 #include <string.h>
 
 #if defined(_WIN32)
-	// 示例是消费者侧代码，直接用 Win32 控制台 API；库内的「裸宏只出现在 platform.h」约束管库不管示例
+	// 示例是消费者侧代码，直接用 Win32 控制台 API；platform.h 的裸宏约束只覆盖库内
 	#ifndef WIN32_LEAN_AND_MEAN
 		#define WIN32_LEAN_AND_MEAN
 	#endif
@@ -28,13 +32,17 @@
 #define kVideoMaxPacket 4096u
 #define kSubMaxPacket	1024u
 #define kChunk			300u
+/* 视频参数块（ext_type = 3）里声明的显示尺寸：本示例的视频载荷是确定性图案、没有真画面对应，
+   也没有别处可沿的尺寸，取一个合法非零值（示例只验容器面，尺寸非零即成立） */
+#define kVideoWidth	 352u
+#define kVideoHeight 288u
 
 #define kVideoFrames 2
 #define kSubEvents	 2
 #define kTotalFrames (kVideoFrames + kSubEvents)
 
-/* 应用侧义务：库只按 UTF-8 字节串直投日志，不做代码页转换，所以控制台码页要自己设成 CP_UTF8，
-   否则本文件的中文判定行与 dump 输出会按代码页 936 重解读成乱码。每个入口都要设一次。 */
+/* 应用侧义务：控制台码页要自己设成 CP_UTF8；库只按 UTF-8 字节串直投日志，不做代码页转换。
+   本文件的中文判定行与 dump 输出都按 UTF-8 字节出。每个入口都要设一次。 */
 static void SetupConsoleUtf8(void)
 {
 #if defined(_WIN32)
@@ -99,6 +107,22 @@ static CLV_StreamDescC MakeStream(uint8_t type, uint8_t id, uint32_t max_packet)
 	return d;
 }
 
+/* 视频流的 ext_type = 3 参数块（`docs/容器规范.md` 的扩展块一节：v2 起每条视频流必带，缺块的流被读方判不可用）。
+   载荷钉死 8 字节，字段布局照 src/video/headers.cpp 的 ParseEncMeta：
+     [0] max_b_frames  [1] quant_precision  [2] ext_tools  [3] reserved  [4..5] width LE16  [6..7] height LE16
+   本示例不写 B 帧（max_b_frames = 0），quant_precision 取 v1/v2 定值 7，无扩展工具、reserved 全 0。 */
+static void FillVideoParams(uint8_t out[8], uint16_t width, uint16_t height)
+{
+	out[0] = 0; /* max_b_frames */
+	out[1] = 7; /* quant_precision */
+	out[2] = 0; /* ext_tools */
+	out[3] = 0; /* reserved */
+	out[4] = (uint8_t) (width & 0xFFu);
+	out[5] = (uint8_t) ((width >> 8) & 0xFFu);
+	out[6] = (uint8_t) (height & 0xFFu);
+	out[7] = (uint8_t) ((height >> 8) & 0xFFu);
+}
+
 /* ① 写：产出真文件，返回 0 表示写入路径全程无错 */
 static int WriteDemoFile(const char* path, uint64_t* packets_out, uint64_t* size_out)
 {
@@ -107,6 +131,7 @@ static int WriteDemoFile(const char* path, uint64_t* packets_out, uint64_t* size
 	CLV_ContainerWriter* w;
 	CLV_StreamDescC video = MakeStream(0, 0, kVideoMaxPacket);
 	CLV_StreamDescC sub = MakeStream(2, 1, kSubMaxPacket);
+	uint8_t enc_meta[8];
 	uint64_t packets = 0;
 
 	memset(&params, 0, sizeof(params));
@@ -127,6 +152,13 @@ static int WriteDemoFile(const char* path, uint64_t* packets_out, uint64_t* size
 		CLV_ContainerWriterAddStream(w, &sub) != CLV_CONTAINER_OK)
 	{
 		printf("  AddStream 失败\n");
+		CLV_ContainerWriterClose(w);
+		return 1;
+	}
+	FillVideoParams(enc_meta, kVideoWidth, kVideoHeight);
+	if (CLV_ContainerWriterAddExtBlock(w, 0, 3, 1, enc_meta, sizeof(enc_meta)) != CLV_CONTAINER_OK)
+	{
+		printf("  视频参数块（ext_type=3）写入失败\n");
 		CLV_ContainerWriterClose(w);
 		return 1;
 	}
@@ -192,8 +224,8 @@ static int ReadMagic(const char* path, char* out, size_t cap)
 }
 
 /* 把一条目的 dts 换算到全局 tick，用于跨流次序判定。
- * 先乘后除：dts × num × 1081080000 ÷ den。demo 的两条流都是 1/1081080000，量级安全；
- * 真正的通用换算在库里（128 位中间量），这里不做溢出防护。 */
+ * 先乘后除：dts × num × 1081080000 ÷ den。demo 的两条流都是 1/1081080000，
+ * 乘积落在 uint64 内；换 timebase 或加流数要先重估这个量级前提。 */
 static uint64_t ToTicks(uint64_t dts, const CLV_StreamDescC* d)
 {
 	if (d == NULL || d->timebase_den == 0 || d->timebase_num == 0) return dts;
@@ -215,8 +247,10 @@ static void PrintStructure(CLV_ContainerReader* r, const char* path)
 	CLV_ContainerReaderStats(r, &stats);
 
 	printf("  文件            %s\n", path);
-	printf("  结构版本        %u.%u   流数 %u   flags 0x%02X\n", (unsigned) head.version_major,
-		   (unsigned) head.version_minor, (unsigned) head.stream_count, (unsigned) head.flags);
+	/* 扩展块条数如实打：视频流必带 ext_type = 3 参数块（v2 起必选），本示例的 .clv 是 2 条
+	   （流 0 的参数块 + 流 1 的字幕样式块），info 子命令读别的文件时按实际条数走 */
+	printf("  结构版本        %u.%u   流数 %u   扩展块 %u   flags 0x%02X\n", (unsigned) head.version_major,
+		   (unsigned) head.version_minor, (unsigned) head.stream_count, (unsigned) blocks, (unsigned) head.flags);
 	printf("  duration_ticks  %llu (= %llu / %llu 秒)\n", (unsigned long long) head.duration_ticks,
 		   (unsigned long long) head.duration_ticks, (unsigned long long) kBaseTicks);
 	printf("  total_packets   %llu   index_offset %llu\n", (unsigned long long) head.total_packets,
@@ -301,8 +335,10 @@ static int RunChecks(const char* path, uint64_t written_packets, uint64_t file_s
 	CLV_ReaderStatsC stats;
 	CLV_StreamDescC video, sub;
 	CLV_ExtBlockC block;
+	CLV_ExtBlockC vparams;
+	uint8_t want_params[8];
 	CLV_IndexEntryC entries[kTotalFrames];
-	char expect[128], actual[160], magic[32];
+	char expect[128], actual[160], magic[32], params[48];
 	uint32_t streams = 0, entry_count = 0, block_count = 0, i;
 	uint64_t last_ticks = 0, last_stream = 0, show_ticks[kTotalFrames];
 	int sorted = 1, frame_count = 0, video0_ok = 0;
@@ -314,6 +350,8 @@ static int RunChecks(const char* path, uint64_t written_packets, uint64_t file_s
 	memset(&video, 0, sizeof(video));
 	memset(&sub, 0, sizeof(sub));
 	memset(&block, 0, sizeof(block));
+	memset(&vparams, 0, sizeof(vparams));
+	memset(want_params, 0, sizeof(want_params));
 	memset(entries, 0, sizeof(entries));
 	memset(show_ticks, 0, sizeof(show_ticks));
 
@@ -324,14 +362,14 @@ static int RunChecks(const char* path, uint64_t written_packets, uint64_t file_s
 		return 1;
 	}
 
-	/* #01 magic + 结构版本 */
+	/* #01 magic + 结构版本（容器格式版本随布局扩位与分段字段升到 2.0，读方只受理 2） */
 	CLV_ContainerReaderGetHead(r, &head);
 	if (ReadMagic(path, magic, sizeof(magic)) != 0) magic[0] = '?';
-	snprintf(expect, sizeof(expect), "CLVFILE / 1.0");
+	snprintf(expect, sizeof(expect), "CLVFILE / 2.0");
 	snprintf(actual, sizeof(actual), "%.7s / %u.%u", magic, (unsigned) head.version_major,
 			 (unsigned) head.version_minor);
 	Check("文件头 magic/版本", expect, actual,
-		  strncmp(magic, "CLVFILE", 7) == 0 && head.version_major == 1 && head.version_minor == 0);
+		  strncmp(magic, "CLVFILE", 7) == 0 && head.version_major == 2 && head.version_minor == 0);
 
 	/* #02 两条流描述符读回 */
 	CLV_ContainerReaderStreamCount(r, &streams);
@@ -345,15 +383,34 @@ static int RunChecks(const char* path, uint64_t written_packets, uint64_t file_s
 		  streams == 2 && video.stream_id == 0 && video.timebase_den == kBaseTicks && sub.stream_id == 1 &&
 			  sub.stream_type == 2 && sub.max_packet_size == kSubMaxPacket);
 
-	/* #03 字幕 ext_type=4 样式块逐字节 */
+	/* #03 扩展块两条逐字节：流 0 的 ext_type=3 视频参数块（8 B，v2 起对视频流必选）+
+	 * 流 1 的 ext_type=4 字幕样式块。链按流分组，故读回视图里参数块在第一条。 */
 	CLV_ContainerReaderExtBlockCount(r, &block_count);
-	CLV_ContainerReaderGetExtBlock(r, 0, &block);
-	snprintf(expect, sizeof(expect), "ext4 样式 %llu B 逐字节等", (unsigned long long) strlen(kStyle));
-	snprintf(actual, sizeof(actual), "ext%u 流%u %llu B %s", (unsigned) block.ext_type, (unsigned) block.stream_id,
-			 (unsigned long long) block.size,
-			 (block.size == strlen(kStyle) && memcmp(block.data, kStyle, block.size) == 0) ? "相同" : "不同");
-	Check("字幕 ext_type=4 样式块", expect, actual,
-		  block_count == 1 && block.ext_type == 4 && block.stream_id == 1 && block.size == strlen(kStyle) &&
+	CLV_ContainerReaderGetExtBlock(r, 0, &vparams);
+	CLV_ContainerReaderGetExtBlock(r, 1, &block);
+	FillVideoParams(want_params, kVideoWidth, kVideoHeight);
+	/* 参数块的六个字段单独成串：载荷取不到时不许碰 data（读方失败即原样留着空结构） */
+	if (vparams.data != NULL && vparams.size == sizeof(want_params))
+	{
+		snprintf(params, sizeof(params), "(%u,%u,%u,%u,%u,%u)", (unsigned) vparams.data[0], (unsigned) vparams.data[1],
+				 (unsigned) vparams.data[2], (unsigned) vparams.data[3],
+				 (unsigned) (vparams.data[4] | (vparams.data[5] << 8)),
+				 (unsigned) (vparams.data[6] | (vparams.data[7] << 8)));
+	}
+	else
+	{
+		snprintf(params, sizeof(params), "(无载荷)");
+	}
+	snprintf(expect, sizeof(expect), "2 块：ext3 流0 8 B + ext4 样式 %llu B 逐字节等",
+			 (unsigned long long) strlen(kStyle));
+	snprintf(actual, sizeof(actual), "%u 块：ext%u 流%u %lluB%s / ext%u 流%u %lluB %s", (unsigned) block_count,
+			 (unsigned) vparams.ext_type, (unsigned) vparams.stream_id, (unsigned long long) vparams.size, params,
+			 (unsigned) block.ext_type, (unsigned) block.stream_id, (unsigned long long) block.size,
+			 (block.size == strlen(kStyle) && memcmp(block.data, kStyle, block.size) == 0) ? "样式相同" : "样式不同");
+	Check("视频参数块 + 字幕样式块", expect, actual,
+		  block_count == 2 && vparams.ext_type == 3 && vparams.stream_id == 0 && vparams.size == sizeof(want_params) &&
+			  vparams.data != NULL && memcmp(vparams.data, want_params, sizeof(want_params)) == 0 &&
+			  block.ext_type == 4 && block.stream_id == 1 && block.size == strlen(kStyle) &&
 			  memcmp(block.data, kStyle, block.size) == 0);
 
 	/* #04 首包 dts 归零（写方平移义务） */

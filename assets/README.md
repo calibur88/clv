@@ -1,6 +1,6 @@
-# assets — 容器层测试素材
+# assets — 测试素材
 
-> 入库目录。放**确定性**的 `.clv` 素材，供端到端测试与人工核对使用。
+> 入库目录。放**确定性**素材，供端到端测试与人工核对使用。
 > 与 `demo/` 解耦：demo 自己现场生成文件，**不读本目录**；本目录也不依赖 demo 才能产出。
 
 ## 目录
@@ -8,27 +8,87 @@
 ```
 assets/
 ├── README.md
-└── fixtures/
-    ├── minimal.clv
-    ├── neg_dts.clv
-    └── subtitle_ext4.clv
+├── fixtures/
+│   ├── minimal.clv
+│   ├── neg_dts.clv
+│   ├── subtitle_ext4.clv
+│   ├── demo_av_1080p_q32.clv    本库编码 + 封装产出的双轨演示件：1080p / 30 fps / 3.5 s / 40.2 MiB
+│   ├── sample-10s.mp4      ┐
+│   ├── sample-20s.mp4      ├ 外部示例视频，编解码与画质测量用
+│   ├── sample-30s.mp4      ┘
+│   ├── sample-15s-id3v2.mp3     外部示例音频原件（带 ID3v2 注释与封面）
+│   ├── sample-15s.flac          由上面那支转换而来，注释与封面都带过来；元数据解读面的真件载体
+│   └── provenance.txt      来源、整件 SHA-256、取帧命令、工具版本
+└── synth/
+    └── provenance.txt      自写生成序列的定义与哈希（字节不落本目录，见下）
 ```
 
-生成脚本按项目约定放在仓库的 `script/` 下：`script/gen_fixtures.py`。
+生成脚本按项目约定放在仓库的 `scripts/` 下：容器素材 = `scripts/gen_fixtures.py`，
+门面基准序列 = `scripts/gen_synth_sequence.py`。
 
-## 三份素材各测什么
+## 素材按尺子分类
+
+| 类别 | 素材 | 量的是 | 判据形态 |
+|---|---|---|---|
+| 真实内容 | `fixtures/sample-{10s,20s,30s}.mp4` | **画质**：误差随量化档的走势 | 有浮动的对比带（同视频纵向比） |
+| 自写生成 | `synth/provenance.txt` 定义的序列 | **正确性**：已知图样上的行为与逐字节全等 | 定值，无浮动 |
+| 真实 FLAC 件 | `fixtures/sample-15s.flac`（+ 它的 mp3 原件） | **元数据解读面**：注释块 11 条逐条取回与查键、图标块九项字段、承载块整块往返；顺带给可听音频腿供料 | 定值（块表四块的类型与字节数、vendor 串、图标九项字段、电平 −21.7 / −5.9 dB）|
+| 本库自产双轨件 | `fixtures/demo_av_1080p_q32.clv` | **端到端**：编码 → 封装 → 解回 → 可播，视音频在**同一个文件**里 | 定值（143 包、音频解回与源逐字节全等、三平面 PSNR）|
+
+尺子之间不混用。跨视频的 PSNR 绝对值**不作横向比较**——外部素材的色彩标记四项全为 unknown，
+各自只与自己不同量化档的序列比；自写序列的彩条 Y/Cb/Cr 是矩阵算出来的定值。
+
+**`synth/` 为什么不放字节**：那条序列是 1080p / 30 fps / 30 s 的原始帧流，六段共 2 799 360 000 B（= 段字节 466 560 000 × 6，算式见 `synth/provenance.txt`「画面」一节），
+提交进仓库既没必要也不可能。它由 `scripts/gen_synth_sequence.py` 按 `synth/provenance.txt`「复现」一节的命令**逐段**复现（命令行没有一次出全部的模式），
+登记表里的每段 SHA-256 就是「复现对了」的判据——素材的定义 = 生成器 + 哈希。
+
+**另有一段不属于节目的补材**：生成器的段 7 = **渐变面**（对角空间坡 + 时域电平坡，全整数算式），
+补的是画质度量三类内容形态（静止面 / 动态面 / 渐变面）里原六段缺的渐变一类。它不排进 30 s 节目、不与音频对齐，
+登记同样走「生成器 + 整段 SHA-256」（见 `synth/provenance.txt` 的段 7 节）。
+加它之后把段 1..6 整段重生成对过哈希，**六条逐位相同**，所以既有素材的登记值一个没作废。
+
+## 三份自制 `.clv` 素材各测什么
 
 | 文件 | 内容 | 考察点 |
 |---|---|---|
-| `minimal.clv` | 一条视频流、两个单包帧、带索引 | 最小合法文件：头 / 描述符 / 包 / 索引 / 尾齐全，CRC 全对 |
-| `neg_dts.clv` | 源首包 dts = −40；第二帧 700 B 按 300 切三片 | **写方平移义务**（落盘首包 dts = 0）+ **每片完整头**的分片与片序连续性 |
-| `subtitle_ext4.clv` | 视频 + 字幕双流，字幕挂 `ext_type = 4` 样式块，四帧 | 扩展块链、跨流索引的统一时间轴次序、dts 相等时按 `stream_id` 的 tie-break、分片重组 |
+| `minimal.clv` | 一条视频流（挂 `ext_type = 3` 参数块）、两个单包帧、带索引 | 最小合法文件：头 / 描述符 / 扩展块 / 包 / 索引 / 尾齐全，CRC 全对 |
+| `neg_dts.clv` | 源首包 dts = −40；第二帧 700 B 按 300 切三片；视频流挂 `ext_type = 3` 参数块 | **写方平移义务**（落盘首包 dts = 0）+ **每片完整头**的分片与片序连续性 |
+| `subtitle_ext4.clv` | 视频 + 字幕双流，视频挂 `ext_type = 3` 参数块、字幕挂 `ext_type = 4` 样式块（扩展块共两条），四帧 | 扩展块链（两条链各一块）、跨流索引的统一时间轴次序、dts 相等时按 `stream_id` 的 tie-break、分片重组 |
+
+`ext_type = 3` 参数块自容器格式版本 2 起对**每条视频流必选**（口径见随仓库发行的 `docs/容器规范.md` 的扩展块一节）：
+载荷 8 字节 `max_b_frames / quant_precision / ext_tools / reserved / width LE16 / height LE16`，`width` 与 `height` 不得为 0。
+这三份素材的视频载荷是合成图案、没有真画面对应，故尺寸取一个合法非零值 352×288（生成器里注释同源）。
+
+## 第四份 `.clv`：`demo_av_1080p_q32.clv`（本库自产的双轨演示件）
+
+前三份由 `scripts/gen_fixtures.py`（Python 独立实现）写出，量的是**读方**；这一份反过来——
+它由**本库的编码与封装面**产出，量的是「编得出、封得进、解得回、播得出」整条链，
+所以它的期望值全部来自实测而不是设计值。配方、逐件哈希与入库前读数在 `fixtures/provenance.txt`。
+
+| 项 | 值 |
+|---|---|
+| 画面 | 1 920 × 1 080、**30 fps**、105 帧 = 3.5 s、源 = `sample-30s.mp4`（帧率 30/1 为整数，正对 `1/30` 时间基） |
+| 音频 | 源 = `sample-15s.flac` 解出的 16-bit / 44 100 Hz / 2 ch PCM，取前 3.5 s |
+| 编码档 | 有损 `q = 32`、`quant_precision = 7`、I 帧间隔 15、系数载体取法 1 档（构建默认档） |
+| 结构 | **单文件双流单段**：视频流 `ext_type = 3` 参数块 + 音频流 `ext_type = 5` FLAC STREAMINFO，143 包交错 |
+| 体积 | 42 137 405 B = 40.2 MiB ⇒ 压在 50 MiB 线内；50 MB ÷ 实测 398 124 B/帧 = 125 帧，这是 1080p 有损档的硬顶 |
+| 音频元数据 | **不带**：演示件里的音频只作可播负载用，注释块与封面在这条链上没有读者，那两块留在 `sample-15s.flac` 本身 |
+| 复现局限 | 驱动件在库内的 `scripts/mtav.cpp`，但不进构建面（没有 CMake 目标构建它）⇒ 复现本件仍需手工编译该件；复现力 = 命令 + 输入哈希 + 产物哈希，不等于「克隆即可重跑」 |
+
+> 系数载体有两种写法：定长档与法 1 档（先写结束标志 EOB，再用位数递增的 Exp-Golomb 编码写幅值）；具体用哪一档由视频帧头第 5 到第 7 位声明，本库默认法 1。
+
+## 视频编解码素材怎么取用
+
+外部示例视频与自写序列的来源、整件 SHA-256、取帧命令、色彩标记与对接事实都登记在各自的
+`provenance.txt` 里（`fixtures/provenance.txt`、`synth/provenance.txt`）——**凡是产生数值的输入，
+同目录必须有一份溯源登记**，缺条目的数值只算「跑出来过」，不算可复现。取帧一律走 rawvideo 管道，
+不在仓库里留大体积 raw 文件。
 
 ## 生成与确定性
 
 ```
-python script/gen_fixtures.py            # 默认写 assets/fixtures/
-python script/gen_fixtures.py --out DIR  # 写到别处（比对用）
+python scripts/gen_fixtures.py            # 默认写 assets/fixtures/
+python scripts/gen_fixtures.py --out DIR  # 写到别处（比对用）
 ```
 
 **确定性是硬要求**：字节流只能是输入的纯函数，不得含时间戳、路径、随机数或任何随环境变化的量。
@@ -45,10 +105,25 @@ demo_local/bin/clv_demo_container.exe info assets/fixtures/neg_dts.clv
 
 | 文件 | 字节数 | 整文件 CRC-32/MPEG-2 | SHA-256（前 16） |
 |---|---|---|---|
-| `minimal.clv` | 335 | `F3CFBDEB` | `521df20ba0a2cdc3` |
-| `neg_dts.clv` | 1081 | `9DED3CBB` | `b8f10c680703eae5` |
-| `subtitle_ext4.clv` | 1724 | `FB942777` | `7ad9c6e27fc9d180` |
+| `minimal.clv` | 377 | `17655092` | `2bcdff83afd6f8d1` |
+| `neg_dts.clv` | 1123 | `C07BC799` | `36107e6d4e9d3690` |
+| `subtitle_ext4.clv` | 1776 | `D0AB5526` | `364399556f2ecd1f` |
+| `demo_av_1080p_q32.clv` | 42 137 405 | `55130B49` | `8f177f554e1cfd07` |
 
-**版本号变更必须重跑**：文件头带 `version_major` / `version_minor`（现 1 / 0），CLV 版本或结构口径一变，
-上面这些字节就会变。此时**重跑 `script/gen_fixtures.py` 并更新本表**，别手改素材文件、别留着旧值。
+**最后一行的复现路径与前三行不同**：它不由 `gen_fixtures.py` 产出，而由本库的编码 + 封装面产出，
+配方与两条重跑对平（`enc` 的载荷仓同哈希、`mux` 的产物逐字节相同）见 `fixtures/provenance.txt` 同名一节。
+
+**上一组值（容器格式版本 2 / 0 期、视频流尚无 `ext_type = 3` 参数块，2026-10-12 随「参数块对视频流必选」这一条落地而作废，留痕不抹行）**：
+`minimal.clv` 347 B `62B12E84` / `4608ac2ea98303fd`、`neg_dts.clv` 1093 B `E5B63DA0` / `46a539bf2743514c`、
+`subtitle_ext4.clv` 1746 B `DD39843E` / `8c7f85501dac31b3`。三件各增 30 B（每条视频流一个 30 B 的参数块：
+前缀 18 + 载荷 8 + crc32 4；字幕流不写该块），其余字节一个没动。新值由 `scripts/gen_fixtures.py` 现算，
+另用独立模型（自写 CRC-32/MPEG-2 逐位长除 + `hashlib`）逐件复算对平 **3 / 3**。
+
+**上一组值（格式版本 1 / 0 期，2026-10-12 随容器格式版本升 2 作废，留痕不抹行）**：
+`minimal.clv` `A941D1E9` / `64f4b2baab104026`、`neg_dts.clv` `6B24537C` / `00d47ac6b9d11303`、
+`subtitle_ext4.clv` `6B68A197` / `b9b1ac43ea022b54`。字节数三件都不变（升版本只动文件头偏移 8 的两字节），
+只有整件 CRC 与哈希跟着变。
+
+**容器格式版本或结构口径变更必须重跑**：文件头带 `version_major` / `version_minor`（现 2 / 0）——**只有这两条轨道**动到才改这三件字节；工程版本（`0.0.x`）递增不触发重跑，它与容器格式版本之间没有换算关系。
+此时**重跑 `scripts/gen_fixtures.py` 并更新本表**，别手改素材文件、别留着旧值。「格式变更须伴随版本升号」是义务条款，见 `README.md` 的版本口径节。
 CRC-32/MPEG-2 参数集：poly `0x04C11DB7`、init `0xFFFFFFFF`、不反射、xorout 0（与 `src/core/crc32.h` 一致）。

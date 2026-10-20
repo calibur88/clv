@@ -1,7 +1,7 @@
 /* io.h
  *
  * 容器层的字节源/汇抽象：容器核心不碰平台 IO，门面层把 CLV_File 适配进来，
- * 单测用内存实现（不落临时文件）。
+ * 另有内存实现，供不经文件系统读写容器字节的场景使用。
  *
  * 写方需要 Seek + 回填（文件头的 total_packets / index_offset 在末尾才知道），
  * 读方需要顺序读 + 文件大小（重同步窗口按剩余量决定）。
@@ -36,7 +36,7 @@ namespace clv
 			virtual uint64_t Size() = 0;
 		};
 
-		// 内存汇：写满可回跳改写，供单测与内存后端使用
+		// 内存汇：写完可回跳改写，容量随写入位置增长，不持有文件句柄
 		class MemorySink final: public ByteSinkIf
 		{
 			public:
@@ -61,8 +61,6 @@ namespace clv
 			uint64_t Tell() override { return pos_; }
 
 			const std::vector<uint8_t>& Bytes() const noexcept { return buf_; }
-
-			size_t Size() const noexcept { return buf_.size(); }
 
 			private:
 

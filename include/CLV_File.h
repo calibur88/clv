@@ -26,7 +26,7 @@
  * - 跨实例、跨线程的并发访问语义未定义，调用方自行同步。
  * - 句柄由 CLV_CloseFile 释放；对 NULL 句柄调用任何函数都返回 CLV_FILE_INVALID_HANDLE，
  *   CLV_CloseFile(NULL) 是合法 no-op。已关闭的句柄再使用是未定义行为。
- * - CLV_OpenMemoryFile 本期是接口占位，声明与定义都在，实现待内存后端落地。
+ * - CLV_OpenMemoryFile 对任何入参都返回 CLV_FILE_UNSUPPORTED，并把 *out_handle 置 NULL。
  */
 #ifndef CLV_FILE_H
 #define CLV_FILE_H
@@ -68,24 +68,26 @@ extern "C"
 	} CLV_FileError;
 
 	/* 打开。失败返回 NULL；错误细分走 Ex 的 err 出参，本函数忽略之。 */
-	CLV_API CLV_File* CLV_OpenFile(const char* path, CLV_FileMode mode);
+	CLV_EXPORT CLV_File* CLV_OpenFile(const char* path, CLV_FileMode mode);
 
-	/* 打开。成功时 *out_handle 非空且返回 CLV_FILE_OK；失败时 *out_handle 为 NULL 且返回具体码。
- * err 出参可为 NULL。 */
-	CLV_API CLV_File* CLV_OpenFileEx(const char* path, CLV_FileMode mode, CLV_FileError* err);
+	/* 打开。成功返回非空句柄且（`err` 非空时）`*err == CLV_FILE_OK`；失败返回 NULL 并写入具体码。
+	 * 句柄走返回值本身，本函数没有句柄出参；`err` 可为 NULL。 */
+	CLV_EXPORT CLV_File* CLV_OpenFileEx(const char* path, CLV_FileMode mode, CLV_FileError* err);
 
-	CLV_API CLV_FileError CLV_ReadFile(CLV_File* h, void* buf, size_t size, size_t* bytes_read);
-	CLV_API CLV_FileError CLV_WriteFile(CLV_File* h, const void* data, size_t size, size_t* bytes_written);
-	CLV_API CLV_FileError CLV_SeekFile(CLV_File* h, uint64_t offset, uint64_t* new_position);
-	CLV_API CLV_FileError CLV_FileSize(CLV_File* h, uint64_t* size);
-	CLV_API CLV_FileError CLV_FlushFile(CLV_File* h);
-	CLV_API void CLV_CloseFile(CLV_File* h);
+	/* 读。短读返回 CLV_FILE_OK，实际读到的字节数走 bytes_read；到文件尾读到 0 字节同样返回 CLV_FILE_OK；
+	 * 请求 0 字节也返回 CLV_FILE_OK 且 *bytes_read 置 0 —— 所以本函数不能用 0 字节判文件尾，剩余量走 CLV_FileSize。 */
+	CLV_EXPORT CLV_FileError CLV_ReadFile(CLV_File* h, void* buf, size_t size, size_t* bytes_read);
+	CLV_EXPORT CLV_FileError CLV_WriteFile(CLV_File* h, const void* data, size_t size, size_t* bytes_written);
+	CLV_EXPORT CLV_FileError CLV_SeekFile(CLV_File* h, uint64_t offset, uint64_t* new_position);
+	CLV_EXPORT CLV_FileError CLV_FileSize(CLV_File* h, uint64_t* size);
+	CLV_EXPORT CLV_FileError CLV_FlushFile(CLV_File* h);
+	CLV_EXPORT void CLV_CloseFile(CLV_File* h);
 
-	/* 内存缓冲区后端的入口（本期占位）。返回 CLV_FILE_UNSUPPORTED 且 *out_handle 为 NULL。 */
-	CLV_API CLV_FileError CLV_OpenMemoryFile(void* buffer, size_t size, CLV_File** out_handle);
+	/* 任何入参都返回 CLV_FILE_UNSUPPORTED，且 *out_handle 置 NULL。 */
+	CLV_EXPORT CLV_FileError CLV_OpenMemoryFile(void* buffer, size_t size, CLV_File** out_handle);
 
 	/* 每个枚举值都返回非空、静态存储期的 ASCII 串；未知值返回 "unknown"。 */
-	CLV_API const char* CLV_FileStrError(CLV_FileError err);
+	CLV_EXPORT const char* CLV_FileStrError(CLV_FileError err);
 
 #ifdef __cplusplus
 }
