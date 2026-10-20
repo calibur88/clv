@@ -1,7 +1,7 @@
 # CLV 公开接口（C ABI）
 
 > 本文是 CLV 公开 C ABI 的权威说明：头文件分工、句柄与错误码约定、逐个函数的入参出参语义、可复制示例与验收步骤。  
-> 文档版本：0.8.0 · 日期：2026-10-21 · 工程版本以 `include/CLV_Version.h` 的四个宏为单一来源。  
+> 文档版本：0.8.1 · 日期：2026-10-21 · 工程版本以 `include/CLV_Version.h` 的四个宏为单一来源。  
 > 字节格式规则见 `docs/容器规范.md`；分层与依赖见 `ARCHITECTURE.md`；头文件里的注释与本表同为契约正文，两边不一致时以本文与头文件为准并回报缺陷。
 
 ---
@@ -89,7 +89,7 @@
 ## 3 `CLV_Version.h`
 
 ```c
-const char* CLV_VersionString(void);   /* 形如 "0.8.0-dev" */
+const char* CLV_VersionString(void);   /* 形如 "0.8.1-dev" */
 int         CLV_VersionMajor(void);
 int         CLV_VersionMinor(void);
 int         CLV_VersionPatch(void);

@@ -1,7 +1,7 @@
 # CLV 功能展示（demo）
 
 > 本目录放示例源码与本说明，**不放构建产物**（产物落 `build/` 与构建时创建的 `demo_local/`）。
-> 当前文档版本：0.8.0；示例打印的工程版本是 `0.8.0-dev`。容器面 `CLV_Container.h` 的函数名 / 参数结构体 / 出参形态属对外 ABI，改动即破坏调用方；错误码只在枚举尾部追加、既有码值与语义不动；未冻结的是 `.clv` 的字节格式与语义。
+> 当前文档版本：0.8.1；示例打印的工程版本是 `0.8.1-dev`。容器面 `CLV_Container.h` 的函数名 / 参数结构体 / 出参形态属对外 ABI，改动即破坏调用方；错误码只在枚举尾部追加、既有码值与语义不动；未冻结的是 `.clv` 的字节格式与语义。
 
 **项目速记**：
 
@@ -59,11 +59,11 @@
 ```c
 #include "CLV_Version.h"
 
-printf("%s\n", CLV_VersionString());   /* 0.8.0-dev */
-printf("%d.%d.%d\n", CLV_VersionMajor(), CLV_VersionMinor(), CLV_VersionPatch());   /* 0.8.0 */
+printf("%s\n", CLV_VersionString());   /* 0.8.1-dev */
+printf("%d.%d.%d\n", CLV_VersionMajor(), CLV_VersionMinor(), CLV_VersionPatch());   /* 0.8.1 */
 ```
 
-命中：`0.8.0-dev` 与 `0.8.0` 各一行。
+命中：`0.8.1-dev` 与 `0.8.1` 各一行。
 
 **打开文件并读取全部（含错误码出参）**
 
