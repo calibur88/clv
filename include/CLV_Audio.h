@@ -201,7 +201,7 @@ extern "C"
 	} CLV_AudioStatsC;
 
 	/* 建编码器参数。blocksize = 0 表示由库按子集自选；level 是压缩档，不承诺跨版本稳定；
-	 * `struct_size` 口径同本文件 `CLV_AudioStreamParamsC`。
+	 * `struct_size` = 0（按本布局受理）或 sizeof(本结构)，其余任何值判 `CLV_AUDIO_VALUE_RANGE`；口径与本文件 `CLV_AudioStreamParamsC` 同式。
 	 * 采样率的实际可接受区间由后端决定，超出区间在打开编码器时被拒。 */
 	typedef struct CLV_AudioEncParamsC
 	{

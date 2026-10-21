@@ -16,6 +16,8 @@
  * 读写与游标：
  * - 短读不是失败：返回 CLV_FILE_OK，实际字节数经 bytes_read 出参给出；到文件尾时 bytes_read 为 0。
  * - 出参指针可为 NULL，表示调用方不要该信息。
+ * - `buf` / `data` 为 NULL 而 `size > 0` 时是参数档：返回 `CLV_FILE_INVALID_ARGUMENT`，
+ *   该次的完成量出参写 0。文件句柄与内存句柄同式；`size == 0` 时不碰指针，两档都返回 `CLV_FILE_OK`。
  * - Seek 是绝对偏移。Seek 到文件尾之后合法，其后 Read 返回 0 字节。
  * - Size 与游标无关，反映文件的实际字节长度。
  * - Flush 对只读句柄是 no-op（无写缓冲可刷）并返回 CLV_FILE_OK，不因此报错。
@@ -26,7 +28,25 @@
  * - 跨实例、跨线程的并发访问语义未定义，调用方自行同步。
  * - 句柄由 CLV_CloseFile 释放；对 NULL 句柄调用任何函数都返回 CLV_FILE_INVALID_HANDLE，
  *   CLV_CloseFile(NULL) 是合法 no-op。已关闭的句柄再使用是未定义行为。
- * - CLV_OpenMemoryFile 对任何入参都返回 CLV_FILE_UNSUPPORTED，并把 *out_handle 置 NULL。
+ * 内存缓冲区（CLV_OpenMemoryFile）：
+ * - 所有权：缓冲区全程归调用方。库不分配、不 free、不 realloc，也不接管；`CLV_CloseFile` 只销毁
+ *   库内的游标对象，宿主那块缓冲在关闭之后依旧有效。
+ * - 入参档：`out_handle == NULL` ⇒ `CLV_FILE_INVALID_ARGUMENT`（这一档没有句柄可判，落参数档不落句柄档）；
+ *   `buffer == NULL` 且 `size > 0` ⇒ `CLV_FILE_INVALID_ARGUMENT`；`size == 0` 合法，是一份空缓冲
+ *   （`Size` 得 0、递进合法缓冲的 `Read` 得 OK + 0 字节、任何非零 `Write` 都越界拒）。
+ * - 模式：`mode` 只受理 `CLV_FILE_MODE_READ` 与 `CLV_FILE_MODE_WRITE` 两档，打开时定死一侧（与文件面同式）。
+ *   `APPEND` 在这里没有对应概念——容量由调用方给定，不存在「追加到末尾」——与越界模式同档回 `CLV_FILE_INVALID_ARGUMENT`。
+ * - 容量固定：写档越出 `size` 即**整次拒**并回 `CLV_FILE_WRITE_FAILED`、`*bytes_written` 写 0，绝不半次写、
+ *   绝不扩、绝不 realloc。要写更多只能由调用方换一块更大的缓冲重开句柄。
+ * - 模式门控、短读语义、`Seek` 越过末尾合法这三条与文件后端完全一致，不复用另一套说法：
+ *   `READ` 句柄上 `Write` 记 `WRITE_FAILED`，`Seek` / `Size` / `Flush` 不受门控，`Flush` 两种模式下都是 no-op 回 OK。
+ * - `Size` 与游标无关：只读句柄给容量，只写句柄给**被写覆盖过的最远字节数**（高水位）——
+ *   这样「往内存写一份、再用另一把只读句柄读回」不需要调用方自己记长度。
+ * - 跨实例、跨线程并发同样不承诺；两把句柄指向同一缓冲时各自记游标，互不干涉，写读重叠区的数据竞争由调用方负责。
+ *
+ * 号位：本入口落地后 `CLV_FILE_UNSUPPORTED`（值 9）在文件面**不再有任何产出者**——它不是被别的码取代，
+ * 而是这一族的入口已经实现。号位按「留白不复用」处理：后续新码一律段尾追加，9 不再投给任何新语义，
+ * 因此既有数值不因这一格的退场而前移；`CLV_FileStrError(9)` 仍返非空 ASCII 串。
  */
 #ifndef CLV_FILE_H
 #define CLV_FILE_H
@@ -83,8 +103,10 @@ extern "C"
 	CLV_EXPORT CLV_FileError CLV_FlushFile(CLV_File* h);
 	CLV_EXPORT void CLV_CloseFile(CLV_File* h);
 
-	/* 任何入参都返回 CLV_FILE_UNSUPPORTED，且 *out_handle 置 NULL。 */
-	CLV_EXPORT CLV_FileError CLV_OpenMemoryFile(void* buffer, size_t size, CLV_File** out_handle);
+	/* 把调用方给定的缓冲区开成只读或固定容量只写的句柄，六条契约见本头抬头「内存缓冲区」一节。
+	 * 成功回 CLV_FILE_OK 且 *out_handle 有效；入参不成立（含 mode 取 APPEND 或越界值）回
+	 * CLV_FILE_INVALID_ARGUMENT 并把 *out_handle 置 NULL。缓冲区始终归调用方，Close 不动它。 */
+	CLV_EXPORT CLV_FileError CLV_OpenMemoryFile(void* buffer, size_t size, CLV_FileMode mode, CLV_File** out_handle);
 
 	/* 每个枚举值都返回非空、静态存储期的 ASCII 串；未知值返回 "unknown"。 */
 	CLV_EXPORT const char* CLV_FileStrError(CLV_FileError err);

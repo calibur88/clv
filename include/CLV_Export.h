@@ -35,4 +35,13 @@
 	#endif
 #endif
 
+/* 能力位（`CLV_Capabilities` 的返回值形状）。本头带这些常量是因为它们描述的是「这一份构建的形状」，
+ * 与导出宏同源，都由构建侧决定；调用方拿到位值后按名判，不要写死数字。
+ *
+ * 这三格描述的是**本构建的形状，不随调用改变**：没有任何入口能把一位从 0 翻成 1。
+ * 段尾追加，已定义的位永不改义；号 2 尤其如此 —— 宿主注入分配器这件事不做，那位永远是 0。 */
+#define CLV_CAP_MEMORY_FILE	   0x1u /* bit0：内存缓冲句柄可用（文件面的 `CLV_OpenMemoryFile` 是实现态） */
+#define CLV_CAP_LOG_STORAGE	   0x2u /* bit1：日志可落盘。spdlog 后端置 1，空后端置 0 */
+#define CLV_CAP_HOST_ALLOCATOR 0x4u /* bit2：恒 0，且永不赋予新义（库内分配不经公开分配口） */
+
 #endif	  // CLV_EXPORT_H

@@ -1,6 +1,6 @@
 # CLV 整体架构
 
-> 本文是 CLV 工程的权威架构说明。当前文档版本：0.8.1 · 日期：2026-10-21。文档版本与工程版本分轨维护，工程版本的单一来源是 `include/CLV_Version.h` 的四个宏。
+> 本文是 CLV 工程的权威架构说明。当前文档版本：0.8.2 · 日期：2026-10-21。文档版本与工程版本分轨维护，工程版本的单一来源是 `include/CLV_Version.h` 的四个宏。
 > 面向读者：要改这个库的代码的人。使用者读 `README.md` 即可，本文解释**为什么这样分层**与**每层的硬约束**。
 
 ---
@@ -21,7 +21,7 @@ CLV = **C++ Lightweight Video**：自研轻量视频容器 + 自研视频编解�
 - **C++ 只存在于实现层**：`clv::core` / `clv::platform` / `clv::backend` 三个命名空间各管一段，跨模块释放的风险靠「`new` / `delete` 都在本库模块内」这条约束消掉，而不是靠跨 ABI 边界的智能指针。
 - **能力按「编译期唯一」还是「编译期可配置」分家**：平台绑定的能力（文件 IO）进 `platform/`，同一目标里只可能编进一份；可换后端的（日志、音频编解码）进 `backends/`，由构建开关选。这条分界决定了目录归属，不允许混放。
 - **平台判定只有一个 `#if`**：CMake 的 `if(WIN32)` 是主判定，`platform/platform.h` 是裸机 / 直接编译场景的兜底；真正的选源 `#if` 全库只有 `platform/fileio/impl_fileio.cpp` 一处。每份平台源文件自带守卫，误加进别平台的构建时整文件为空。
-- **降级与能力走状态，不走错误通道**：日志后端为空时 `CLV_Log` 静默丢弃并返回 OK，不报错；`CLV_OpenMemoryFile` 未落地时返回 `CLV_FILE_UNSUPPORTED`。理由是下一条。
+- **降级与能力走状态，不走错误通道**：日志后端为空时 `CLV_Log` 静默丢弃并返回 OK，不报错；能力在不在（构型差异、后端形状）不作为失败码回报，`CLV_FILE_UNSUPPORTED` 这一格的退场就是这条的落地结果。理由是下一条。
 - **日志失败不许影响宿主**：`CLV_Log` 没有返回值。日志是旁路能力，一旦给它错误通道，宿主就得为「写日志失败」写分支，这会把旁路变成主路。控制台编码同理——库只投 UTF-8 字节串，怎么显示是应用的事，这份义务由 `demo/core.c` / `demo/container.c` 各自的 `SetupConsoleUtf8()` 演示，库不代劳。
 - **不猜调用方的路径**：Windows 侧只走 W 系列 API（UTF-8 → UTF-16 → `CreateFileW`），但**不做分隔符改写、不加 `\\?\` 前缀**。改写分隔符会掩盖调用方的错误；长路径前缀涉及一整套语义（卷名、相对路径、尾点），v1 不承诺，交给应用侧预处理。
 - **不越权承诺内存策略**：`CLV_Alloc` / `CLV_Realloc` / `CLV_Free` 直通 C 运行时。分配口本身不设防（失败返回 NULL，不重试、不记日志，判空归调用方）；容器面、视频面、音频面、节拍面的入口在 `extern "C"` 边界上把分配失败收敛成各自的内存不足错误码后回报（`CLV_CONTAINER_OUT_OF_MEMORY` / `CLV_VIDEO_OUT_OF_MEMORY` / `CLV_AUDIO_OUT_OF_MEMORY` / `CLV_PACE_OUT_OF_MEMORY`），所以「调用方判空」只对直接用 `CLV_Alloc` 系列的口子成立。文件面不设这一档：`CLV_FileError` 里没有内存不足码，句柄分配走 `platform/fileio/impl_fileio.cpp` 的 `CreateFileIO()`。宿主注入分配器、静态池后端都还没做，见 §6。
@@ -36,7 +36,7 @@ CLV/
 │   ├── CLV_Export.h          # CLV_EXPORT 符号可见性开关
 │   ├── CLV_Version.h         # 版本查询
 │   ├── CLV_File.h            # 文件读写（句柄 + 三模式 + 错误码）
-│   ├── CLV_Logger.h          # 日志（等级 + 过滤）
+│   ├── CLV_Logger.h          # 日志（等级 + 过滤 + 落盘口与错误码）
 │   ├── CLV_Memory.h          # 分配口
 │   ├── CLV_Container.h       # 容器读写面（句柄 + 错误码 + 出参结构；形状属对外 ABI）
 │   ├── CLV_Video.h           # 视频编解码面（解码七入口 + 编码端重建 + 帧与码流句柄）
@@ -93,7 +93,7 @@ CLV/
 │
 ├── platform/                 # clv::platform：编译期唯一、与平台绑定的能力
 │   ├── platform.h            # 平台宏兜底推导（裸宏唯一出现处）
-│   └── fileio/               # impl_fileio.{h,cpp} 唯一选源 + win32 / linux / macos 三份实现
+│   └── fileio/               # impl_fileio.{h,cpp} 唯一选源 + win32 / linux / macos 三份实现 + memory_fileio.{h,cpp}（不参与平台选源的内存缓冲后端）
 │
 ├── backends/                 # clv::backend：可替换实现（日志 + 音频编解码）
 │   ├── impl_logger.h
@@ -145,6 +145,7 @@ CLV/
               │     ├─► win32_fileio.cpp            CreateFileW / ReadFile / WriteFile
               │     ├─► linux_fileio.cpp            stdio
               │     └─► macos_fileio.cpp            stdio（iOS 在选源处 #error）
+              ├─► platform/fileio/memory_fileio.cpp 内存缓冲后端（不参与平台选源，容量固定、缓冲区归调用方）
               └─► backends/impl_logger.h
                     ├─► spdlog/logger_backend.cpp   真实后端（第三方只在这里出现）
                     └─► null/logger_backend.cpp     空后端
@@ -222,12 +223,12 @@ python scripts/format_all.py                                # C/C++ 走 .clang-f
 | 套件 | 领域 | 例数（`ctest -N` 注册数，分域相加 = 合计） |
 |---|---|---|
 | `core` | 路径与模式判定、CRC-32/MPEG-2、LEB128 与 zigzag、内存、版本 | 20 |
-| `api` | 公开头端到端行为（打开 / 读写 / 游标 / 门控 / 错误码 / 日志等级）+ 容器面句柄与错误码 + 参数结构体自报尺寸 + 音频元数据解读面 + 节拍面 | 76 |
+| `api` | 公开头端到端行为（打开 / 读写 / 游标 / 门控 / 错误码 / 日志等级）+ 内存缓冲句柄两档与固定容量 + 容器面句柄与错误码 + 参数结构体自报尺寸 + 音频元数据解读面 + 节拍面 + 日志落盘口三档 + 能力查询两问 | 91 |
 | `container` | 包编解码与容错分档、片序连续性与重组、读写全链路（内存源 / 汇）、索引排序与二分、分片接口、分段器（段描述块编解码与值域、多段清单续读、段观测计数、`WriteParams` 尺寸三档并存） | 77 |
 | `audio` | 帧头 / 承载块 / 注释块结构层（含帧头编码号容量档与最短形式）、libFLAC 编解码闭环与逐帧块大小对账 | 39 |
 | `video` | VOP 头与片头、宏块头 / B-VOP 头、块系数载体（两档编码法）、编码端有损重建闭环、运动补偿与半像素插值、direct 缩放、DPB 与输出序、补黑、多片载荷、帧引用计数与 RGB24 转换 | 142 |
 | `independent` | 独立验证层：期望值不取自被测实现，逐档爬护栏 + 反向对照 | 21 |
-| **合计** | 与 `ctest -N` 报出的注册数同值 | **375** |
+| **合计** | 与 `ctest -N` 报出的注册数同值 | **390** |
 
 `CLV_LOGGER_USE_SPDLOG` 的 ON 与 OFF 两种配置各跑一遍同一套用例。
 
@@ -261,15 +262,12 @@ python scripts/format_all.py                                # C/C++ 走 .clang-f
 |---|---|
 | B 帧残差通路 | 编码侧目前只产 `direct` + `not_coded`（不带残差、不带块数据）；解码侧四型语法（direct / interpolate / backward / forward）均已实现，`not_coded` 走整块复制 |
 | 字幕格式 | 未开工 |
-| `.clv` 字节格式与语义的对外发布 | 格式版本 2.0 已写进 `docs/容器规范.md`，但尚未随发布冻结；接口形状已属对外 ABI，不在未落地之列 |
-| `CLV_OpenMemoryFile`（内存缓冲区后端） | 接口占位：有声明有定义，返回 `CLV_FILE_UNSUPPORTED` |
-| `CLV_LogSetStorage`（日志落盘） | 接口占位：调用无效果 |
+| `.clv` 字节格式与语义的对外发布 | 格式版本 2.0 已写进 `docs/容器规范.md`，但尚未随发布冻结；接口形状已属对外 ABI，不在未落地之列。冻结声明的完整说法（冻结面 = 公开签名 + 结构体字段形状 + 枚举值序与段位；未冻结 = 字节语义 + 平台支持范围 + 性能承诺）见 `README.md` 的「版本口径」一节与 `API.md` 抬头 |
 | 宿主注入后端与分配器路由 | 未做：后端由编译期选源，`CLV_Memory` 直通 C 运行时，库内部不经它 |
-| 能力查询（当前生效后端 / 是否降级） | 未做：C ABI 上问不出后端状态 |
 | SDL3 的四层结论 | ① 库本体源码**零** SDL include（`grep '#include *[<"]SDL' src include platform backends tests` = 0 命中），全仓唯一带 SDL 头的是 `demo/video.c`；② 链接面**一个** target 链 `SDL3::SDL3`（只有 `clv_demo_video`，库与测试都不链）；③ 构建面**只在开示例时相关**——SDL3 不进 `CLV_BUILD_DEMOS=OFF` 的查找，而 `ON` 时找不到就是配置期 `FATAL_ERROR`（有 target 真消费它，不再降级为 WARNING）；插桩构型不建它（`scripts/install_third_party.py` 的 `SANITIZE_SKIP`）；④ 文档面**已补**——本节与 `demo/README.md` 的播放器一节即口径。据此 SDL3 **不迁移**、不作库依赖，它只是示例的依赖 |
 | 对齐分配 | 未加，等 SIMD 侧有需求再扩 |
 | iOS | `platform.h` 留检测分支，选源处 `#error` 占位 |
-| Linux / macOS 后端 | 代码按 POSIX 语义写好，**未经非 Windows 平台编译验证**，不作为可用承诺 |
+| Linux / macOS 后端 | 代码按 POSIX 语义写好，**未经非 Windows 平台编译验证**，不作为可用承诺。平台支持范围这一整句的对外声明在 `README.md`「版本口径」与 `API.md` 抬头，本节这三行（iOS / Linux-macOS / 容器面非 Windows）是它的分层落点，三处口径同一 |
 | 容器面的非 Windows 验证 | 容器核心不碰平台 IO，但仍只在 MSVC x64 上编过、跑过 |
 | sanitizer 覆盖面 | 内存安全（ASan）在 MSVC 构型下实测过，且**两档系数编码法各跑一遍**（定宽档与默认档，各自独立构建目录、插桩专用第三方前缀）：全量用例零命中、UAF 探针能自证 ⇒ 检测通路有效。两档都跑是必要的 —— 只跑默认档时，定宽档才走的分支（分档常量的 `#else` 侧、定宽载体的消费路径、"取错法必须被拒"那条断言）在 sanitizer 下等于没测。双档那两把的全量零命中是跑批本身的结果；**UAF 探针自证（证明检测通路真的有效，而不是"没报错等于没测到"）取自另一次实测** —— 两件事别并成一句读，任何一格都不替另一格背书。**泄漏与 UB 两格本工具链给不出**：MSVC ASan 明写 `detect_leaks is not supported on this platform`；`/fsanitize=undefined` 被 `D9002 忽略未知选项` 静默吞掉且返回 0（假绿），链接侧 `/fsanitize=address` 同类（`LNK4044`）。要这两格的数得换手段（CRT leak debug / Dr. Memory / clang-cl），属构建扩面 |
 

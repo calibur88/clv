@@ -46,6 +46,11 @@ target_link_libraries(clv_tests PRIVATE clv_static GTest::gtest)
 target_include_directories(clv_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # 入库素材的绝对路径（正斜杠，符合库的路径契约）；test_fixture_files.cpp 直接吃这三份文件。
 target_compile_definitions(clv_tests PRIVATE CLV_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets/fixtures")
+# 日志落盘那族用例要按构型分侧判（spdlog 侧判真落盘，null 侧判 UNSUPPORTED_BACKEND），
+# 所以选型宏对测试 TU 也要可见 —— 与库目标同一个 CMake option，不在测试里另判一次。
+if(CLV_LOGGER_USE_SPDLOG)
+    target_compile_definitions(clv_tests PRIVATE CLV_LOGGER_USE_SPDLOG)
+endif()
 clv_apply_target_flags(clv_tests)
 
 include(GoogleTest)

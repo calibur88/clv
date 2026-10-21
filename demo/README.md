@@ -1,7 +1,7 @@
 # CLV 功能展示（demo）
 
 > 本目录放示例源码与本说明，**不放构建产物**（产物落 `build/` 与构建时创建的 `demo_local/`）。
-> 当前文档版本：0.8.1；示例打印的工程版本是 `0.8.1-dev`。容器面 `CLV_Container.h` 的函数名 / 参数结构体 / 出参形态属对外 ABI，改动即破坏调用方；错误码只在枚举尾部追加、既有码值与语义不动；未冻结的是 `.clv` 的字节格式与语义。
+> 当前文档版本：0.8.2；示例打印的工程版本是 `0.8.2-dev`。容器面 `CLV_Container.h` 的函数名 / 参数结构体 / 出参形态属对外 ABI，改动即破坏调用方；错误码只在枚举尾部追加、既有码值与语义不动；未冻结的是 `.clv` 的字节格式与语义。
 
 **项目速记**：
 
@@ -46,11 +46,13 @@
 
 **ABI 覆盖（核心面）**：`include/CLV_File.h` 现有 **10 个** `CLV_EXPORT` 函数，`core.c` 真实调用其中 **9 个**
 （`OpenFile` / `OpenFileEx` / `ReadFile` / `WriteFile` / `SeekFile` / `FileSize` / `FlushFile` / `CloseFile` / `FileStrError`）；
-**未覆盖面 = 占位的 `CLV_OpenMemoryFile`**。「写后刷盘」一项走两次 `CLV_FlushFile`：写完 `Close` 之前刷一次，再在只读句柄上刷一次、断言返回 `CLV_FILE_OK`（只读句柄的 `Flush` 是 no-op）；
+**未覆盖面 = `CLV_OpenMemoryFile`**。「写后刷盘」一项走两次 `CLV_FlushFile`：写完 `Close` 之前刷一次，再在只读句柄上刷一次、断言返回 `CLV_FILE_OK`（只读句柄的 `Flush` 是 no-op）；
 落盘内容仍由 `CLV_FileSize` 读回比对。
-`CLV_OpenMemoryFile` 是占位口：任何入参都返回 `CLV_FILE_UNSUPPORTED`（口径见 `API.md` 的占位节），示例不演示占位口。
-其余三个头：`CLV_Version.h` 四个函数全调，`CLV_Memory.h` 三个函数全调，`CLV_Logger.h` 调 `CLV_Log` / `CLV_LogSetLevel`
-两个，未调的是占位口 `CLV_LogSetStorage`（落盘后端未实现）。清单写死在此，改函数时必须同步这一段。
+`CLV_OpenMemoryFile` 已是实现态，但示例只演示文件句柄这一路：内存缓冲句柄的所有权与固定容量语义由测试侧覆盖，示例不重复一遍。
+其余三个头：`CLV_Version.h` 四个函数全调，`CLV_Memory.h` 三个函数全调，`CLV_Logger.h` 现有 **5 个**函数，
+`core.c` 调 `CLV_Log` / `CLV_LogSetLevel` 两只；**未覆盖面 = 落盘那三只**（`CLV_LogSetStorage` / `CLV_LogSetStorageEx` / `CLV_LogStrError`）——
+示例把日志投递给控制台这一路演示到底，不去动落点：落盘会往盘上写件，示例的判据形态（重跑逐字节可比）不适合带一份变的文件。
+清单写死在此，改函数时必须同步这一段。
 
 ## 可复制示例（按主题分节）
 
@@ -59,11 +61,11 @@
 ```c
 #include "CLV_Version.h"
 
-printf("%s\n", CLV_VersionString());   /* 0.8.1-dev */
-printf("%d.%d.%d\n", CLV_VersionMajor(), CLV_VersionMinor(), CLV_VersionPatch());   /* 0.8.1 */
+printf("%s\n", CLV_VersionString());   /* 0.8.2-dev */
+printf("%d.%d.%d\n", CLV_VersionMajor(), CLV_VersionMinor(), CLV_VersionPatch());   /* 0.8.2 */
 ```
 
-命中：`0.8.1-dev` 与 `0.8.1` 各一行。
+命中：`0.8.2-dev` 与 `0.8.2` 各一行。
 
 **打开文件并读取全部（含错误码出参）**
 

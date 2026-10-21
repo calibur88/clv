@@ -1,5 +1,7 @@
 #include "CLV_File.h"
 #include "platform/fileio/impl_fileio.h"
+#include "platform/fileio/memory_fileio.h"
+#include "src/core/path_contract.h"
 
 #include <cstdint>
 
@@ -8,16 +10,6 @@ namespace clv::core
 
 	namespace
 	{
-
-		// 路径契约：UTF-8 字节序 + 只用 '/'。这条判定跨所有平台一致，发生在任何平台代码之前，
-		// 因此后端拿到的路径已经不含反斜杠。
-		bool IsPathValid(const char* path) noexcept
-		{
-			if (path == nullptr || path[0] == '\0') return false;
-			for (const char* p = path; *p != '\0'; ++p)
-				if (*p == '\\') return false;
-			return true;
-		}
 
 		bool IsModeValid(CLV_FileMode mode) noexcept
 		{
@@ -104,13 +96,33 @@ extern "C" CLV_FileError CLV_FlushFile(CLV_File* h)
 
 extern "C" void CLV_CloseFile(CLV_File* h) { delete clv::core::AsImpl(h); }
 
-extern "C" CLV_FileError CLV_OpenMemoryFile(void* buffer, size_t size, CLV_File** out_handle)
+extern "C" CLV_FileError CLV_OpenMemoryFile(void* buffer, size_t size, CLV_FileMode mode, CLV_File** out_handle)
 {
-	// 内存后端不在可用面内：入参一律忽略，句柄置 NULL，返回 CLV_FILE_UNSUPPORTED
-	(void) buffer;
-	(void) size;
-	if (out_handle != nullptr) *out_handle = nullptr;
-	return CLV_FILE_UNSUPPORTED;
+	auto fail = [out_handle](CLV_FileError code) -> CLV_FileError
+	{
+		if (out_handle != nullptr) *out_handle = nullptr;
+		return code;
+	};
+
+	// 出参档先判：句柄给不出去，与「句柄不成立」不是一回事
+	if (out_handle == nullptr) return CLV_FILE_INVALID_ARGUMENT;
+	// 容量 0 是合法的空缓冲区（Read 得 0 字节、Write 任何量都越界拒）；容量非零却没缓冲才是参数不成立
+	if (buffer == nullptr && size > 0u) return fail(CLV_FILE_INVALID_ARGUMENT);
+	// 模式在契约层就收成两档：APPEND 在内存句柄上没有对应概念，与越界值同档
+	if (mode != CLV_FILE_MODE_READ && mode != CLV_FILE_MODE_WRITE) return fail(CLV_FILE_INVALID_ARGUMENT);
+
+	clv::platform::FileIO* impl = clv::platform::membuf::CreateMemoryFileIO(buffer, size);
+	if (impl == nullptr) return fail(CLV_FILE_OPEN_FAILED);
+
+	// path 传 NULL 是这一族入口的形状：缓冲区已由工厂给定，后端契约里那一格忽略
+	const int code = impl->Open(nullptr, static_cast<int>(mode));
+	if (code != CLV_FILE_OK)
+	{
+		delete impl;
+		return fail(clv::core::ToFileError(code, CLV_FILE_OPEN_FAILED));
+	}
+	*out_handle = reinterpret_cast<CLV_File*>(impl);
+	return CLV_FILE_OK;
 }
 
 extern "C" const char* CLV_FileStrError(CLV_FileError err)

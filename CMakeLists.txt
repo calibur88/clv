@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(clv VERSION 0.8.1 LANGUAGES C CXX)
+project(clv VERSION 0.8.2 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -34,7 +34,7 @@ add_compile_definitions(CLV_DEC_MB_THREADS=${CLV_DEC_MB_THREADS})
 # 判读口径：数的是**注册数**（`ctest -N` 报出的条数），不是通过数 —— 一条例跑失败或被判跳过都不改它，
 # 只有用例增删、或测试目标没建起来才会让它动；换构型（含 CLV_COEF_CODING 两档、Debug/Release、ASan）不改这个数字。
 # 例数变了就同批改这一格与 `tests/docs/` 的对外计数。
-set(CLV_EXPECTED_TESTS 375)
+set(CLV_EXPECTED_TESTS 390)
 message(STATUS "CLV: 期望 ctest 注册例数 = ${CLV_EXPECTED_TESTS}")
 
 enable_testing()

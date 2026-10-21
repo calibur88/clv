@@ -1,7 +1,9 @@
 # CLV 公开接口（C ABI）
 
 > 本文是 CLV 公开 C ABI 的权威说明：头文件分工、句柄与错误码约定、逐个函数的入参出参语义、可复制示例与验收步骤。  
-> 文档版本：0.8.1 · 日期：2026-10-21 · 工程版本以 `include/CLV_Version.h` 的四个宏为单一来源。  
+> 文档版本：0.8.2 · 日期：2026-10-21 · 工程版本以 `include/CLV_Version.h` 的四个宏为单一来源。  
+> **冻结声明**：公开 C ABI 自 `0.8.2` 起冻结到 1.0。冻结面 = 公开函数签名 + 结构体字段形状 + 六套错误枚举的值序与段位；未冻结 = `.clv` 的字节语义、平台支持范围、性能承诺。  
+> 平台支持范围 = Windows x64 已验证；Linux / macOS 按 POSIX 语义实现但**未经非 Windows 编译验证**，不作可用承诺；iOS 只有 `platform/platform.h` 的检测分支。  
 > 字节格式规则见 `docs/容器规范.md`；分层与依赖见 `ARCHITECTURE.md`；头文件里的注释与本表同为契约正文，两边不一致时以本文与头文件为准并回报缺陷。
 
 ---
@@ -15,9 +17,11 @@
 | 对象形态 | **不透明句柄**（`typedef struct CLV_X CLV_X;`）+ 自由函数 + 整型错误码；C++ 类型不跨边界，接口上没有异常，失败一律走返回码 |
 | 错误码 | 返回整型枚举，`0` 恒为成功；构造类函数失败返回 `NULL`，细分码走出参 |
 | 出参可否为 NULL | **逐口定**，没有「所有出参都可为 `NULL`」这条通则：文件面六个出参全部可为 `NULL`，容器面、媒体面与节拍面的**主出参**（结构体与帧出参）为空即判对应的 `*_INVALID_ARGUMENT`；计数出参逐口不同，见下面「出参 NULL 的逐口口径」 |
-| 枚举值序即 ABI | 五套错误枚举的值序不可改：改序、插位、删位都是破坏性变更，新码只能追加在本面段位的末尾；退场码留下的号位不复用 |
-| 五面错误码各自独立 | 五面的错误码各自独立枚举：文件与容器从 1 顺排、音频 32 到 63、视频 64 到 95、节拍 96 起，不得跨头比对数值——各头的 `1` 语义无关 |
-| 错误转文本 | 五个错误枚举各有一个转文本口：`CLV_FileStrError`、`CLV_ContainerStrError`、`CLV_VideoStrError`、`CLV_AudioStrError`、`CLV_PaceStrError`；每个口对所属枚举的每个值返回非空、静态存储期的 ASCII 串，未知值与退场留白号位返回 `"unknown"` |
+| 枚举值序即 ABI | 六套错误枚举的值序不可改：改序、插位、删位都是破坏性变更，新码只能追加在本面段位的末尾；退场码留下的号位不复用 |
+| 六面错误码各自独立 | 六面的错误码各自独立枚举：文件与容器从 1 顺排、音频 32 到 63、视频 64 到 95、节拍 96 到 101、日志 102 起，不得跨头比对数值——各头的 `1` 语义无关 |
+| 错误转文本 | 六个错误枚举各有一个转文本口：`CLV_FileStrError`、`CLV_ContainerStrError`、`CLV_VideoStrError`、`CLV_AudioStrError`、`CLV_PaceStrError`、`CLV_LogStrError`；每个口对所属枚举的每个值返回非空、静态存储期的 ASCII 串，未知值与退场留白号位返回 `"unknown"` |
+| 结构体自报尺寸 | **枚举式，不按字节长度猜版本**。容器 / 视频 / 音频三面的参数结构体受理集写死成三档：`0` ⇒ 按当前布局受理（存量 memset 写法的口子）、`上一版尺寸`（**只有容器面 `CLV_WriteParams` 有这一档** = 16，只认前六个字段）、`sizeof(本结构)` ⇒ 显式声明本布局；**其余任何值一律显式拒**（容器 `CLV_CONTAINER_INVALID_ARGUMENT`、视频 `CLV_VIDEO_VALUE_RANGE`、音频 `CLV_AUDIO_VALUE_RANGE`），库拿不到「尺寸像哪一版」这种推断当结论。两面各结构体的受理集在自己那一行里逐条写明，不只靠指路。**节拍面是登记在案的例外**：`CLV_PaceParamsC` / `CLV_PaceDecisionC` 拒 `0` 与小于本版的值，**大于本版受理**（按「不小于本版已知前缀」读）—— 这一条与本行相反，**已拍定保持**，不收回来对齐 |
+| 号位口径 | 六面的段位与留白：文件 **1–10**（值 9 自内存口落地起**无产出者**，留白不复用）｜容器 **1–13**（值 10 同样无产出者，不复用）｜**15–31 不预分配给任何面**（这一段没有主人，别从这儿挑码）｜音频 **32–63**（41 / 45 留白不复用）｜视频 **64–95**（73 / 78 / 81 / 82 留白不复用，已用到 85）｜节拍 **96–101**｜日志 **102–105**｜字幕 **106 起**（号段预留，语义等字幕轮自己定）。追加新码只允许落在**本面段尾的下一格**；留白号位永不重新投给新语义，因此既有码值不因某格退场而前移。各面 `StrError` 对留白号位照旧返回文案 |
 | 句柄线程约束 | 句柄不跨线程使用；跨实例、跨线程的并发语义未定义，调用方自行同步 |
 | 句柄生命周期 | `Open` / `Create` 得到，`Close` 释放；对 `NULL` 句柄调用任何函数返回对应的 `INVALID_HANDLE`（`Close(NULL)` 是合法 no-op）；已关闭的句柄再使用是未定义行为 |
 | 内存耗尽 | **分配口本身**不设防：`CLV_Alloc` / `CLV_Realloc` 失败返回 `NULL`，不重试、不记日志，判空由调用方做。容器、视频、音频、节拍四面入口在 C ABI 边界上把分配失败收口成各自的具体码 —— `CLV_CONTAINER_OUT_OF_MEMORY` / `CLV_VIDEO_OUT_OF_MEMORY` / `CLV_AUDIO_OUT_OF_MEMORY` / `CLV_PACE_OUT_OF_MEMORY` |
@@ -56,11 +60,11 @@
 
 | 头 | 能力域 | 公开符号规模 | 状态 |
 |---|---|---|---|
-| `include/CLV_Export.h` | `CLV_EXPORT` 可见性开关 | 1 宏 | 稳定 |
-| `include/CLV_Version.h` | 版本查询 | 4 函数 + 4 宏 | 稳定 |
-| `include/CLV_File.h` | 文件读写：句柄 + 三模式 + 11 错误码 | 10 函数 | 稳定（内存后端为占位） |
-| `include/CLV_Logger.h` | 日志：四等级 + 过滤 | 3 函数 | 稳定（落盘为占位） |
-| `include/CLV_Memory.h` | 分配口 | 3 函数 | 稳定（C 运行时直通） |
+| `include/CLV_Export.h` | `CLV_EXPORT` 可见性开关 + 能力位名 | 4 宏（1 可见性 + 3 能力位） | 稳定；能力位号段尾追加，`CLV_CAP_HOST_ALLOCATOR` 恒 0 且永不改义 |
+| `include/CLV_Version.h` | 版本查询 + 本构建形状 | **5 函数** + 7 宏（4 版本宏 + 3 能力位） | 稳定；能力位段尾追加、已定义位不改义 |
+| `include/CLV_File.h` | 文件读写：句柄 + 三模式 + 11 错误码 | 10 函数 | 稳定（文件后端与内存缓冲区后端均为实现态；值 9 是留白号位） |
+| `include/CLV_Logger.h` | 日志：四等级 + 过滤 + 落盘 + 错误码 + 后端与等级查询 | **7 函数** + 2 枚举（等级 4 值、错误码 5 值 = `OK` 加 102 到 105） | 稳定；落盘口的形状与码值段尾追加同其余五面一条 |
+| `include/CLV_Memory.h` | 分配口 | 3 函数 | 稳定（C 运行时直通）。**便利口不是注入点**：库内分配不经这三只口，宿主重载全局 `operator new` 只影响库内部那一路，两套不承诺同源；接管库内分配 = 未提供能力（bit2 恒 0）|
 | `include/CLV_Container.h` | 容器读写面 | **25 函数**（写方 7 + 读方 17 + `StrError`）+ **10 结构体** + 14 错误码 | 函数名 / 参数结构体 / 出参形态属对外 ABI，改动即破坏调用方；错误码只在枚举尾部追加、既有码值与语义不动；未冻结的是 `.clv` 的字节格式与语义 |
 | `include/CLV_Video.h` | 视频编解码面 | **23 函数**（无状态 2 + 解码 7 + 编码 4 + 码流 4 + 帧 5 + `StrError`）+ 5 结构体 + 6 枚举 | 编解两侧的**有损重建闭环已接**，**无损档已接**（编码侧 `CLV_VideoEncParamsC.mode`，无损的模式信号在码流里 = 帧头 / 片头的 `vop_quant = 0`，解码侧不接模式参数）；**运动补偿已接**（帧间按运动矢量取样，半像素双线性平均 + 参考缓冲边缘复制带；B 帧编码侧目前只产 direct + `not_coded`）；帧的借用与归还走引用计数（`CLV_VideoFrameFree`），逐帧像素出库走 `CLV_VideoFrameToRGB24`；函数级说明见本头每个导出声明上的注释 |
 | `include/CLV_Audio.h` | 音频编解码面 | **28 函数**（无状态 5 + 承载块解读 4 + 解码 6 + 编码 6 + 缓冲 3 + 大块 3 + `StrError`）+ 10 结构体 + 3 枚举 + **16 个失败码**（计数一律不含 `OK`；段内 41 / 45 两格是退场留白、号位不复用，所以槽位 18 个、能拿到的失败码 16 个）| 编解码闭环已实现（libFLAC 后端接线到帧级：帧头自核 + 流声明对账 + 一包一帧）；**承载块内容的解读面已接**（Vorbis 注释键值与图标块字段，只读、不复制字节）；结构层与句柄面均为实现态；函数级说明见本头每个导出声明上的注释 |
@@ -82,25 +86,41 @@
 
 入参不成立（`payload` 为空、`size` 为 0、`out` 为空）判 `CLV_AUDIO_INVALID_ARGUMENT`。
 
-视频面的帧对象始终归库所有，取帧口交出去的只是带计数的借用句柄：取帧口交出帧时引用计数加一；调用方用毕调 `CLV_VideoFrameFree` 减一；计数归零的帧才回收进空闲池。Free 之后该帧指针失效，建议立即置空。重置或关闭会使所有已交出的帧指针失效，此后再调 Free 返回参数不成立。对同一帧重复调用返回参数不成立；跨复用后的陈旧调用属调用方未定义行为，本版本不做幂等保证。`CLV_VideoFrameAddRef` 与 `CLV_VideoFrameRelease` 是同一个计数上的两扇门（加计数并回报当前值 / 减计数不回报），对 `NULL` 分别是返回 0 与 no-op，都不崩溃。`CLV_VideoFrameToRGB24` 把 8-bit YUV420P 帧转成 `3 × 宽 × 高` 字节、行间不留填充的 RGB24 缓冲，色度按 2×2 最近邻放大而不做插值（增益式、移位与夹取口径见该口的导出注释；位深不是 8 走 `CLV_VIDEO_BIT_DEPTH_UNSUPPORTED`）。
+视频面的帧对象始终归库所有，取帧口交出去的只是带计数的借用句柄：取帧口交出帧时引用计数加一；调用方用毕调 `CLV_VideoFrameFree` 减一；计数归零的帧才回收进空闲池。Free 之后该帧指针失效，建议立即置空。重置或关闭会使所有已交出的帧指针失效，此后再调 Free 返回参数不成立。对同一帧重复调用返回参数不成立；跨复用后的陈旧调用属调用方未定义行为，本 ABI 不承诺幂等。`CLV_VideoFrameAddRef` 与 `CLV_VideoFrameRelease` 是同一个计数上的两扇门（加计数并回报当前值 / 减计数不回报），对 `NULL` 分别是返回 0 与 no-op，都不崩溃。`CLV_VideoFrameToRGB24` 把 8-bit YUV420P 帧转成 `3 × 宽 × 高` 字节、行间不留填充的 RGB24 缓冲，色度按 2×2 最近邻放大而不做插值（增益式、移位与夹取口径见该口的导出注释；位深不是 8 走 `CLV_VIDEO_BIT_DEPTH_UNSUPPORTED`）。
+
+**1.0 承诺集**（清单式；这五格是「形状」而非「本版实现细节」，到 1.0 不改，改它算破坏性变更）：
+
+1. 取帧口交出帧时引用计数**加一**；
+2. `CLV_VideoFrameFree` **减一**（它是归还口，不是 `free` 语义的释放口）；
+3. 计数**归零才回收**进空闲池 —— 「还有一处没归还」的帧不会被回收，可回收不等于全回收；
+4. 对同一帧**重复归还**判 `CLV_VIDEO_INVALID_ARGUMENT`（值 65），且不改变计数；
+5. **重置或关闭作废之后**再归还同一格，同样判 65（关闭那一侧只承诺「句柄不得再用」，不承诺归还能回报什么）。
+
+同一承诺集在 `include/CLV_Video.h` 的该口注释里逐字对得上；两处的措辞都不带「本版本」这类时效限定。
 
 ---
 
 ## 3 `CLV_Version.h`
 
 ```c
-const char* CLV_VersionString(void);   /* 形如 "0.8.1-dev" */
+const char* CLV_VersionString(void);   /* 形如 "0.8.2-dev" */
 int         CLV_VersionMajor(void);
 int         CLV_VersionMinor(void);
 int         CLV_VersionPatch(void);
+uint32_t    CLV_Capabilities(void);
 ```
 
 | 宏 | 含义 |
 |---|---|
 | `CLV_VERSION_MAJOR` / `MINOR` / `PATCH` | 三段数字，唯一来源 |
 | `CLV_VERSION_STRING` | 带预发布后缀的完整串 |
+| `CLV_CAP_MEMORY_FILE`（bit0） | 内存缓冲句柄可用。`CLV_OpenMemoryFile` 是实现态 ⇒ 本构建恒置 1 |
+| `CLV_CAP_LOG_STORAGE`（bit1） | 日志可落盘。spdlog 后端置 1，空后端置 0 |
+| `CLV_CAP_HOST_ALLOCATOR`（bit2） | **恒 0，且那一格永不赋予新义**：宿主注入分配器不在本 ABI 的能力范围内 |
 
-四个函数与四个宏同源；`src/version.cpp` 读宏不写字面量。字符串含 `-dev` 后缀，三段数字只表达数值部分。容器格式版本（文件头 `version_major` / `version_minor`）与工程版本分轨，不经本头查询。
+四个版本函数与四个版本宏同源；`src/version.cpp` 读宏不写字面量。字符串含 `-dev` 后缀，三段数字只表达数值部分。容器格式版本（文件头 `version_major` / `version_minor`）与工程版本分轨，不经本头查询。
+
+`CLV_Capabilities` 回答的是**这一份构建编进了什么**：位名在 `CLV_Export.h`，返回值不随任何调用改变（没有任何入口能把一位从 0 翻成 1，也没有入口让句柄「暂时不支持」）。3 号位以上未分配，读到 0 不携带信息——不要据此推断「以后会是 1」。判据侧的用法是把 bit1 与 `CLV_LogBackendName()` 对平：两处读同一个构建选项，等式不成立即为漂。
 
 ---
 
@@ -136,13 +156,13 @@ CLV_FileError  CLV_SeekFile(CLV_File* h, uint64_t offset, uint64_t* new_position
 CLV_FileError  CLV_FileSize(CLV_File* h, uint64_t* size);
 CLV_FileError  CLV_FlushFile(CLV_File* h);
 void           CLV_CloseFile(CLV_File* h);
-CLV_FileError  CLV_OpenMemoryFile(void* buffer, size_t size, CLV_File** out_handle);
+CLV_FileError  CLV_OpenMemoryFile(void* buffer, size_t size, CLV_FileMode mode, CLV_File** out_handle);
 const char*    CLV_FileStrError(CLV_FileError err);
 ```
 
 `CLV_OpenFile` 失败只返回 `NULL`，忽略错误细分；要原因用 `CLV_OpenFileEx`：成功时返回非空句柄且 `*err == CLV_FILE_OK`，失败时返回 `NULL` 且 `*err` 是具体码。
 
-`CLV_OpenMemoryFile` 是占位入口：声明与定义都在，任何入参都返回 `CLV_FILE_UNSUPPORTED` 且 `*out_handle` 置 `NULL`。
+`CLV_OpenMemoryFile` 把调用方给的那块内存包成句柄：缓冲区全程归调用方，库不分配、不 `free`、不 `realloc`，`CLV_CloseFile` 只销毁库内的游标对象。`mode` 只受理 `READ` 与 `WRITE` 两档（`APPEND` 在这一族里没有对应概念，与越界值同落 `CLV_FILE_INVALID_ARGUMENT`）；容量固定，写档越出 `size` 整次拒并回 `CLV_FILE_WRITE_FAILED`、`*bytes_written` 写 0，绝不半次写、绝不扩。`Size` 在只读档给容量、只写档给被写覆盖过的最远字节数。短读语义、模式门控、`Seek` 越过末尾合法这三条与文件后端一致。`out_handle == NULL`、或 `buffer == NULL` 而 `size > 0` 都回 `CLV_FILE_INVALID_ARGUMENT` 并把 `*out_handle` 置 `NULL`；`size == 0` 是一份合法的空缓冲。本口自 `[0.8.2]` 起带 `mode` 入参，**形状相对 `0.0.1` 起的三参版本是破坏性变更**。
 
 ### 4.3 `CLV_FileError`
 
@@ -157,8 +177,8 @@ const char*    CLV_FileStrError(CLV_FileError err);
 | 6 | `CLV_FILE_SEEK_FAILED` | 定位失败 |
 | 7 | `CLV_FILE_SIZE_FAILED` | 取长度失败 |
 | 8 | `CLV_FILE_FLUSH_FAILED` | 刷盘失败 |
-| 9 | `CLV_FILE_UNSUPPORTED` | 未落地的能力（当前是内存后端） |
-| 10 | `CLV_FILE_INVALID_ARGUMENT` | 模式值非法或 `size != 0` 而缓冲为 `NULL` |
+| 9 | `CLV_FILE_UNSUPPORTED` | **留白号位，不再有产出者**：文件面每一族入口都已实现，值 9 不投给任何新语义，后续新码一律段尾追加（`CLV_FileStrError(9)` 仍返非空文案，既有码值不前移） |
+| 10 | `CLV_FILE_INVALID_ARGUMENT` | 模式值非法，或 `size != 0` 而缓冲指针为 `NULL`（读写两侧、文件句柄与内存句柄同式）；`CLV_OpenMemoryFile` 的 `out_handle == NULL`、`APPEND` 落内存句柄也归这一档 |
 
 ---
 
@@ -167,7 +187,11 @@ const char*    CLV_FileStrError(CLV_FileError err);
 ```c
 void CLV_Log(CLV_LogLevel level, const char* msg);
 void CLV_LogSetLevel(CLV_LogLevel level);
+CLV_LogLevel CLV_LogGetLevel(void);
+const char*  CLV_LogBackendName(void);
 void CLV_LogSetStorage(const char* filepath, size_t rotate_size_kb);
+CLV_LogError CLV_LogSetStorageEx(const char* filepath, size_t rotate_size_kb, size_t max_files);
+const char*  CLV_LogStrError(CLV_LogError err);
 ```
 
 | 约定 | 行为 |
@@ -176,10 +200,24 @@ void CLV_LogSetStorage(const char* filepath, size_t rotate_size_kb);
 | `msg == NULL` | 整条丢弃，不记错误 |
 | `level` 越界 | `CLV_Log` 整条丢弃；`CLV_LogSetLevel` 是 no-op，保持原等级 |
 | 默认过滤等级 | `CLV_LOG_INFO`（构造后即生效） |
-| 等级查询 | **无**查询接口，当前等级由调用方自己记账 |
-| 错误通道 | **无**：日志失败不许影响宿主，后端内部吞掉落点问题 |
-| 落盘 | `CLV_LogSetStorage` 是占位，调用无效果 |
-| 后端 | 由构建选项决定；空后端（`CLV_LOGGER_USE_SPDLOG=OFF`）下所有调用都是丢弃 |
+| 等级查询 | `CLV_LogGetLevel` 回「当前设定并用于过滤的那一档」，构造后 = `CLV_LOG_INFO`；空后端不过滤，它在回这一问时**恒等于构造缺省**（`SetLevel` 不改变任何可观测行为） |
+| 错误通道 | 投递侧**无**（日志失败不许影响宿主）；落盘侧有，走 `CLV_LogError`——本面唯一有回报的入口是 `CLV_LogSetStorageEx` |
+| 落盘 | `CLV_LogSetStorageEx` 装上文件落点：`rotate_size_kb` 是单份轮转上限（KB，0 判参数档），`max_files` = 0 不轮转（一路追加、不重置已有内容）、`N>0` 时基础件之外最多再留 N 份轮转件，上限 200 000 自钉。再次调用**换**落点不叠加，控制台输出与文件并存 |
+| 老落盘口 | `CLV_LogSetStorage` 转调新口并把结果码丢掉（`max_files` 固定取 1）：**无回报**，调用方看不出成没成。要结果一律用 Ex 那一只 |
+| 路径 | 与文件面同一把尺：UTF-8 字节串、只用 `/`；`NULL`、空串、含 `\` 都判 `CLV_LOG_INVALID_PATH`，判定在任何后端之前。与文件面不同：本口不转宽字符，非 ASCII 路径能否落对由窄字符运行时决定，不作承诺 |
+| 后端 | 由构建选项决定；`CLV_LogBackendName` 回 `spdlog` 或 `null`（ASCII 静态串、永不为 NULL），与 `CLV_Capabilities` 的 bit1 同源。空后端（`CLV_LOGGER_USE_SPDLOG=OFF`）下投递一律丢弃，`CLV_LogSetStorageEx` 回 `CLV_LOG_UNSUPPORTED_BACKEND`，不假装成功 |
+
+### 5.1 `CLV_LogError`
+
+| 值 | 名称 | 触发 |
+|---|---|---|
+| 0 | `CLV_LOG_OK` | 成功 |
+| 102 | `CLV_LOG_INVALID_PATH` | 路径为 `NULL`、空串或含 `\` |
+| 103 | `CLV_LOG_UNSUPPORTED_BACKEND` | 当前构建的后端落不了盘（空后端） |
+| 104 | `CLV_LOG_OPEN_FAILED` | 路径合法但装不上落点：目录不存在、被占、权限不足 |
+| 105 | `CLV_LOG_INVALID_ARGUMENT` | `rotate_size_kb == 0`、乘 1024 越界，或 `max_files > 200 000` |
+
+段位：日志面从 102 起（节拍面末码 101 的下一格），末码停在 105；字幕面从 106 起。判定顺序固定为路径档 → 参数档 → 后端档 → 打开档，前三档与后端选型无关。
 
 ---
 
@@ -545,14 +583,13 @@ CRT 不能混用：调用方的运行时必须与库一致（静态 `/MT*` 与�
 
 | 符号 | 现状 |
 |---|---|
-| `CLV_OpenMemoryFile` | 声明与定义都在，返回 `CLV_FILE_UNSUPPORTED`、`*out_handle` 为 `NULL`，内存后端尚未实现 |
-| `CLV_LogSetStorage` | 调用无效果，落盘日志后端尚未实现 |
 | 视频编码句柄 | 真实现：`CLV_VideoEncoderOpen` / `CLV_VideoEncoderAllocFrame` / `CLV_VideoEncoderEncode` / `CLV_VideoEncoderClose` 吃源帧吐载荷。帧间预测的参考是**编码器自己产出的重建帧（闭环）**：参考缓冲由编码器自管，调用方既不提供也无法替换，喂进来的原始帧只作残差比对的被减数。v1 无环路滤波，进参考的就是未滤波的重建；同一条件下编码器内部重建与解码器输出逐字节相同，故此闭环不引入两侧漂移 |
 | 视频解码句柄 | 真实现：`CLV_VideoDecoderDecode` / `NextOutput` / `Flush` / `StreamRejected` 吃码流吐帧，自管参考缓冲与待输出队列，出帧按显示序，致命码拒解后粘滞。编码端同样真实现（产 VOP 载荷与宏块序列，做内部重建、运动估计与参考帧自管）。系数载体有两种写法：定长档与法 1 档（先写结束标志 EOB，再用位数递增的 Exp-Golomb 编码写幅值）；具体用哪一档由视频帧头第 5 到第 7 位声明，本库默认法 1。**目前只限两项**：B 帧编码侧一律 direct + `not_coded`，不带残差与块数据；10 / 12-bit 的像素电平未定义 |
 | 音频句柄 | 编解码闭环已实现：`CLV_AudioDecoderOpen` / `CLV_AudioDecoderDecodeFrame` / `CLV_AudioEncoderOpen` / `CLV_AudioEncoderWrite` / `CLV_AudioEncoderNextFrame` / `CLV_AudioEncoderFlush` 等全部接线到 libFLAC 后端（帧头自核 + 流声明对账 + 一包一帧）；无状态的帧头自查 / 承载块拆分 / 掩码剥离 / 流信息解析同为实现态 |
 | 容器面全部符号 | 形状属对外 ABI（改动即破坏调用方）；未冻结的是 `.clv` 的字节格式与语义 |
 | 单文件长度 | 结构不设上限（偏移类字段是 u64）；分段容器已落地（`flags` bit3 + `file_ext_offset` + `ext_type = 7` 段描述块 + 多段读口），段索引表（`ext_type = 8`）值已留、未实现 |
 | 跨线程与跨实例并发 | 语义未定义，不由本 ABI 承诺 |
+| 宿主分配器 | **判「不做注入」，只把边界写死**，五条：① `CLV_Alloc` / `CLV_Realloc` / `CLV_Free` 是给调用方的便利口，不是注入点，库里没有任何一处把它们当钩子用；② 库内分配不经这三只口 —— 实现层走标准库分配器（STL 容器与智能指针经 `std::allocator` → 全局 `operator new`），所以宿主重载全局 `operator new` 只影响库内部那一路，与 `CLV_Alloc` 拿到的内存**不承诺同源**；③ 三只口继续走 C 运行时 `malloc` / `realloc` / `free`（C++ 分配函数不带尺寸查询，`CLV_Realloc` 的语义因此做不到由 `operator new` 承担），失败行为 = 返 `NULL`、不抛、不重试、不记日志，判空由调用方做 —— 这是本库**唯一**一处「分配失败以 NULL 出现在调用方手里」，四面入口已在 `extern "C"` 边界接 `std::bad_alloc` 返各面 `*_OUT_OF_MEMORY`，两档形态刻意分开；④ 要接管库内分配 = 未提供能力，`CLV_Capabilities` 的 bit2 恒 0 且那一格永不赋予新义；⑤ 跨模块传递与释放需宿主自行保证同一 CRT 实例（`/MT*` 与 `/MD*` 不可混链），本 ABI 不作承诺也不检测 |
 
 ---
 
@@ -565,7 +602,7 @@ CRT 不能混用：调用方的运行时必须与库一致（静态 `/MT*` 与�
 5. 逐函数验 `NULL` 入参：句柄为 `NULL` 回 `INVALID_HANDLE`，出参为 `NULL` 回 `INVALID_ARGUMENT`，都不许崩。
 6. 用 `CLV_FILE_INVALID_PATH` 与容器口的 `CLV_CONTAINER_IO_FAILED` 核对 §1.1 的路径契约与码值收敛。
 7. 用 `assets/fixtures/` 三份素材核 §7.5 的统计口径：正常读回时全部计数为 0。
-8. 跑 `ctest`，确认 **375 例**全过；其中只吃公开 C ABI 的 `api` 面 76 例是本文的机器可读对账。`core` 域直测不出 ABI 的内部工具（CRC-32/MPEG-2、LEB128 与 zigzag），`container` / `audio` / `video` 三个域两面混吃：句柄端到端走公开面，单元级用例直接 include `src/` 下的实现层头，用来钉变换 / 量化 / 块载体 / 运动补偿 / 参考帧管理这些不进 ABI 的行为；`clv_tests` 因此恒链静态件 `clv_static`，实现层符号不带导出宏、不进动态件的导出表。`ctest -R Independent` 单跑独立验证层那 21 例，它们与调用方契约无关，是仓内的边界与分辨力检查。
+8. 跑 `ctest`，确认 **390 例**全过；其中只吃公开 C ABI 的 `api` 面 91 例是本文的机器可读对账。`core` 域直测不出 ABI 的内部工具（CRC-32/MPEG-2、LEB128 与 zigzag），`container` / `audio` / `video` 三个域两面混吃：句柄端到端走公开面，单元级用例直接 include `src/` 下的实现层头，用来钉变换 / 量化 / 块载体 / 运动补偿 / 参考帧管理这些不进 ABI 的行为；`clv_tests` 因此恒链静态件 `clv_static`，实现层符号不带导出宏、不进动态件的导出表。`ctest -R Independent` 单跑独立验证层那 21 例，它们与调用方契约无关，是仓内的边界与分辨力检查。
 
 
 

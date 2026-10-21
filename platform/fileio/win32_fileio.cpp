@@ -95,6 +95,7 @@ namespace clv::platform::win32
 
 	int Win32FileIO::Read(void* buf, size_t size, size_t* bytes_read)
 	{
+		if (bytes_read != nullptr) *bytes_read = 0u;	// 失败档先落一个能算出的完成量，不把旧值留给调用方
 		if (handle_ == INVALID_HANDLE_VALUE) return CLV_FILE_INVALID_HANDLE;
 		if (mode_ != CLV_FILE_MODE_READ) return CLV_FILE_READ_FAILED;
 		if (size > 0 && buf == nullptr) return CLV_FILE_INVALID_ARGUMENT;
@@ -120,6 +121,7 @@ namespace clv::platform::win32
 
 	int Win32FileIO::Write(const void* data, size_t size, size_t* bytes_written)
 	{
+		if (bytes_written != nullptr) *bytes_written = 0u;	  // 同上：三条早退都各有已知完成量 0
 		if (handle_ == INVALID_HANDLE_VALUE) return CLV_FILE_INVALID_HANDLE;
 		if (mode_ != CLV_FILE_MODE_WRITE && mode_ != CLV_FILE_MODE_APPEND) return CLV_FILE_WRITE_FAILED;
 		if (size > 0 && data == nullptr) return CLV_FILE_INVALID_ARGUMENT;

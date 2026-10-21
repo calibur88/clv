@@ -1,6 +1,6 @@
 # CLV
 
-> 本文是 CLV 仓库的入口说明。当前文档版本：0.8.1 · 抬头日期 2026-10-02，内容更新至 2026-10-21（容器格式版本升 2、分段容器落地与多段读口、`ext_type = 3` 对视频流转必选、入库素材第二次重锚）。
+> 本文是 CLV 仓库的入口说明。当前文档版本：0.8.2 · 抬头日期 2026-10-02，内容更新至 2026-10-21（容器格式版本升 2、分段容器落地与多段读口、`ext_type = 3` 对视频流转必选、入库素材第二次重锚，以及**字幕前四项 ABI 空洞补齐 + 公开面冻结声明**：内存缓冲句柄、日志落盘与第六套错误码、能力查询三口、宿主分配器边界）。
 
 CLV = **C++ Lightweight Video**：自研轻量视频容器 + 自研视频编解码 + 自研字幕格式。
 公开面是 **C ABI**：不透明句柄 + 自由函数 + 错误码枚举。
@@ -64,11 +64,11 @@ Windows 控制台上要正确显示中文，调用方先设码页：`SetConsoleO
 
 | 头 | 函数 | 一句话 |
 |---|---|---|
-| `CLV_Version.h` | `CLV_VersionString` / `CLV_VersionMajor` / `CLV_VersionMinor` / `CLV_VersionPatch` | 版本查询，字符串带预发布后缀 |
+| `CLV_Version.h` | `CLV_VersionString` / `CLV_VersionMajor` / `CLV_VersionMinor` / `CLV_VersionPatch` / `CLV_Capabilities` | 版本查询（串带预发布后缀）+ 本构建的能力位图（形状不随调用改变） |
 | `CLV_File.h` | `CLV_OpenFile` / `CLV_OpenFileEx` / `CLV_ReadFile` / `CLV_WriteFile` / `CLV_SeekFile` / `CLV_FileSize` / `CLV_FlushFile` / `CLV_CloseFile` / `CLV_OpenMemoryFile` / `CLV_FileStrError` | 文件读写：三模式打开、顺序与随机读、取长度、刷盘、错误码文案 |
-| `CLV_Logger.h` | `CLV_Log` / `CLV_LogSetLevel` / `CLV_LogSetStorage` | 日志：UTF-8 字节串直投 + 等级过滤 |
-| `CLV_Memory.h` | `CLV_Alloc` / `CLV_Realloc` / `CLV_Free` | 分配口，直通 C 运行时，失败返回 NULL |
-| `CLV_Export.h` | `CLV_EXPORT`（宏） | 静态件下为空；构建动态件时 `CLV_BUILD_DLL` 切 dllexport、消费动态件时 `CLV_USE_DLL` 切 dllimport，两个位都由所链目标自带 |
+| `CLV_Logger.h` | `CLV_Log` / `CLV_LogSetLevel` / `CLV_LogGetLevel` / `CLV_LogBackendName` / `CLV_LogSetStorage` / `CLV_LogSetStorageEx` / `CLV_LogStrError` | 日志：UTF-8 字节串直投 + 等级过滤与查询 + 后端名 + 文件落盘（轮转份数可选，带回报的那只口是 `...Ex`） |
+| `CLV_Memory.h` | `CLV_Alloc` / `CLV_Realloc` / `CLV_Free` | 分配口，直通 C 运行时，失败返回 NULL。**便利口不是注入点**：库内分配不经这三只口，接管库内分配未提供 |
+| `CLV_Export.h` | `CLV_EXPORT` + `CLV_CAP_MEMORY_FILE` / `CLV_CAP_LOG_STORAGE` / `CLV_CAP_HOST_ALLOCATOR`（宏） | 可见性宏：静态件下为空，构建动态件时 `CLV_BUILD_DLL` 切 dllexport、消费动态件时 `CLV_USE_DLL` 切 dllimport，两个位都由所链目标自带。另三只能力位是 `CLV_Capabilities` 的返回值名，`HOST_ALLOCATOR` 恒 0 |
 | `CLV_Container.h` | 写方 7 个（`…WriterOpenFile` / `AddStream` / `AddExtBlock` / `WriteFrame` / `WriteFrameChunks` / `Finish` / `Close`）+ 读方 17 个（`…ReaderOpenFile` / `NextFrame` / `StreamCount` / `GetStream` / `Stats` / `HasIndex` / `IndexCount` / `GetHead` / `GetIndexEntry` / `ExtBlockCount` / `GetExtBlock` / `Close`，另有多段读五口 `…ReaderOpenSegments` / `SegmentIndex` / `SegmentTotal` / `SegStats` / `SegExtCheck`）+ `CLV_ContainerStrError` = **25** | 容器读写：**形状属对外 ABI**（改动即破坏调用方），未冻结的是 `.clv` 的字节格式与语义。不透明句柄 + 整帧或调用方给定的分片进出；分段容器已落地（`ext_type = 7` 段描述块 + 段清单连续出帧 + 段级观测口），头注释即契约正文 |
 | `CLV_Video.h` | 无状态 2（`CLV_VideoCodedSize` / `ParseEncMeta`）+ 解码 7（`DecoderOpen` / `Decode` / `NextOutput` / `Flush` / `Reset` / `StreamRejected` / `Close`）+ 编码 4（`EncoderOpen` / `AllocFrame` / `Encode` / `Close`）+ 码流 4（`BitstreamGetBytes` / `BitstreamSliceCount` / `BitstreamGetSlice` / `BitstreamRelease`）+ 帧 5（`FrameAddRef` / `FrameRelease` / `FrameFree` / `FrameGetDesc` / `FrameToRGB24`）+ `StrError` = **23** | 视频编解码面：**编解两侧的有损重建闭环已接**，**无损档已接**（`mode = LOSSLESS` + 码流里 `vop_quant = 0`，系数直载、重建与源逐字节全等）（编码端变换量化 → 系数载体 → 内部重建并自存参考帧；解码端句柄七入口全真）；系数载体有两种写法：定长档与法 1 档（先写结束标志 EOB，再用位数递增的 Exp-Golomb 编码写幅值）；具体用哪一档由视频帧头第 5 到第 7 位声明，本库默认法 1。**运动补偿已接**（帧间按运动矢量取样，半像素双线性平均 + 参考缓冲边缘复制带；B 帧编码侧目前只产 direct + `not_coded`）。码流缓冲归调用方、用完自己 `Release` |
 | `CLV_Audio.h` | 无状态 5（`AudioInspectFrame` / `ParseStreamInfo` / `SplitMetaBlock` / `ClassifyMetaBlock` / `StripChannelMask`）+ 解码 6（`DecoderOpen` / `DecodeFrame` / `AddMetaBlock` / `Reset` / `Stats` / `Close`）+ 编码 6（`EncoderOpen` / `Write` / `NextFrame` / `Flush` / `TakeStreamInfo` / `Close`）+ 缓冲 3（`BufferAddRef` / `BufferRelease` / `BufferGetDesc`）+ 元数据块 3（`BlobAddRef` / `BlobRelease` / `BlobGetBytes`）+ 承载块解读 4（`ParseVorbisComment` / `VorbisCommentEntryAt` / `CLV_AudioVorbisCommentFindKey` / `ParsePicture`）+ `StrError` = **28** | 音频面：编解码闭环已实现（libFLAC 后端接线到帧级：帧头自核 + 流声明对账 + 一包一帧）；结构层（帧头 / 承载块 / 注释块）与句柄面均为实现态 |
@@ -86,11 +86,11 @@ Windows 控制台上要正确显示中文，调用方先设码页：`SetConsoleO
 | 能力门控 | 只有 Read / Write 受打开模式限制，越界分别得 `WRITE_FAILED` / `READ_FAILED`；Seek / Size / Flush 三种模式下都可用 |
 | 出参 | 出参指针可为 NULL；返回非 `CLV_FILE_OK` 时不写出参 |
 | 错误表达 | 打开失败的细分走 `CLV_OpenFileEx` 的 `err` 出参（`CLV_OpenFile` 忽略它）；其余操作返回 `CLV_FileError`；文案走 `CLV_FileStrError`，返回静态存储期的 ASCII 串，未知值返回 `"unknown"` |
-| 日志 | `CLV_Log` 无返回值，日志失败不向调用方报告；消息按 UTF-8 字节串直投，不解析 `{}` 与 `%s`；默认过滤等级 INFO；越界等级整条丢弃；`CLV_LogSetStorage` 当前无效果 |
+| 日志 | `CLV_Log` 无返回值，投递失败不向调用方报告；消息按 UTF-8 字节串直投，不解析 `{}` 与 `%s`；默认过滤等级 INFO；越界等级整条丢弃；落盘口 `CLV_LogSetStorageEx` 有回报（`CLV_LOG_OK` / 102 到 105 四档），老口 `CLV_LogSetStorage` 转调它并丢码 = 无回报 |
 | 内存 | 分配失败返回 NULL，判空由调用方做；`CLV_Free(NULL)` 是合法 no-op |
 | 并发 | 只保证单实例单次调用原子；跨实例、跨线程的并发语义未定义，调用方自行同步 |
 | 句柄 | 由 `CLV_CloseFile` 释放；对 NULL 句柄的任何调用返回 `CLV_FILE_INVALID_HANDLE`，`CLV_CloseFile(NULL)` 是合法 no-op；已关闭的句柄再使用是未定义行为 |
-| 未就绪入口 | `CLV_OpenMemoryFile` 返回 `CLV_FILE_UNSUPPORTED` 且 `*out_handle` 为 NULL |
+| 内存缓冲句柄 | `CLV_OpenMemoryFile(buffer, size, mode, &out)` 交出实现态句柄：缓冲区全程归调用方（库不分配、不 `realloc`），`mode` 只受理 `READ` / `WRITE`，容量固定、写档越界整次拒；`Size` 在只读档给容量、只写档给高水位。形状自 `[0.8.2]` 起带 `mode`，是三参版本的破坏性变更 |
 | 错误码编号 | 五面的错误码各自独立枚举：文件与容器从 1 顺排、音频 32 到 63、视频 64 到 95、节拍 96 起，不得跨头比对数值——各头的 1 语义无关；文件面失败在容器口统一收敛为 `CLV_CONTAINER_IO_FAILED`，不回传文件面码值 |
 | 容器面时间轴 | `WriteFrame` 收该流原始时间轴上的绝对 dts / pts（可为负），写方按首帧平移到 0 落盘、读方不承担平移；`pts_delta` 是「本帧 PTS − 本帧 DTS」，用 zigzag 有符号 varint 承载，允许为负 |
 | 容器面线程 | 句柄不跨线程使用，跨实例并发语义未定义 |
@@ -111,7 +111,7 @@ Windows 控制台上要正确显示中文，调用方先设码页：`SetConsoleO
 | 项 | 结果 |
 |---|---|
 | clean 重建 | 0 warning |
-| `ctest` | 注册 **375** 例、0 失败；其中 1 例（`VideoQualityRealMedia.…`）在没有真素材环境变量时按设计 `GTEST_SKIP`，不判红。`CLV_LOGGER_USE_SPDLOG` 的 ON 与 OFF 两种配置都跑 |
+| `ctest` | 注册 **390** 例、0 失败；其中 1 例（`VideoQualityRealMedia.…`）在没有真素材环境变量时按设计 `GTEST_SKIP`，不判红。`CLV_LOGGER_USE_SPDLOG` 的 ON 与 OFF 两种配置都跑 |
 | 第三方接入 | `find_package`（用 `build/_install`）与源码 `add_subdirectory` 回退两条路都可用；**libFLAC 是例外**，走自建导入目标，见下一节 |
 | 格式自查 | `python scripts/format_all.py`（C/C++ 走仓库根 `.clang-format`，Python 走 black） |
 | 示例 | `CLV_BUILD_DEMOS=ON` 构建后，在 `demo_local/` 下跑 `./bin/clv_demo_core.exe`、`./bin/clv_demo_container.exe` 与 `./bin/clv_demo_video.exe <一份双流 .clv>`，前两个退出码 0 表示自动判定项全过；第三份是双轨播放器（另需外部 SDL3），判据是退出码 0 且末行 `DEMO_VIDEO_DONE shown=… dropped=… repeated=…` 打出来——该行只在两轨都跑完时打印，`shown` 等于流里的帧数、`dropped` 为 0；人工项见 `demo/README.md` |
@@ -151,12 +151,16 @@ set_target_properties(FLAC::FLAC PROPERTIES
 
 | 轨道 | 值 | 出现位置 |
 |---|---|---|
-| 工程版本 | `0.8.1`，字符串 `0.8.1-dev` | `include/CLV_Version.h` 的四个宏（单一来源）、CMake `project(clv VERSION 0.8.1)`、`CLV_VersionString()` 的返回值 |
-| 文档版本 | `0.8.1` | 设计文档与本 README 的抬头声明，不进可执行代码；与工程版本可以同值，但两条轨道的来源与变更时机各自独立 |
+| 工程版本 | `0.8.2`，字符串 `0.8.2-dev` | `include/CLV_Version.h` 的四个宏（单一来源）、CMake `project(clv VERSION 0.8.2)`、`CLV_VersionString()` 的返回值 |
+| 文档版本 | `0.8.2` | 设计文档与本 README 的抬头声明，不进可执行代码；与工程版本可以同值，但两条轨道的来源与变更时机各自独立 |
 | 容器格式版本 | `2` / `0`（`version_major` / `version_minor`） | `.clv` 文件头偏移 8 / 10，读方据此判能否解析 |
 
 **格式变更须伴随版本升号**：改动落到线上字节（布局、字段宽度、偏移口径、取值域）时，**必须同轮**抬 `version_major`（只澄清语义、补齐定义而不动布局才抬 `version_minor`），并随之重锚入库素材与规范正文。反面就是 2026-10-11 到 2026-10-12 之间那段：布局已变而 `version_major` 仍写 1，两份文件字节上看不出归属。
 三条轨道之间**没有换算关系**：抬工程版本既不触发容器格式版本、也不触发入库素材重跑（重跑判据只看容器格式版本与结构口径）。
+
+**冻结声明**：公开 C ABI 自 `0.8.2` 起冻结到 1.0 —— **冻结面** = 公开函数签名 + 结构体字段形状 + 六套错误枚举的值序与段位；改任一项都算破坏性变更，新错误码只允许落在本面段尾的下一格，留白号位不复用。**未冻结** = `.clv` 的字节语义（容器格式版本仍 `2/0`，规范正文未随发布冻结）、平台支持范围、性能承诺。逐函数与逐结构的承诺见 `API.md`。
+
+**平台支持范围**：Windows x64 是**已验证**平台（本仓全部验收读数都取自它）。Linux 与 macOS 的后端按 POSIX 语义实现，但**未经非 Windows 编译器验证过**，不作可用承诺；iOS 只有 `platform/platform.h` 里的检测分支，选源处 `#error`，没有实现件。这一句与 `ARCHITECTURE.md` 的未落地表互指。
 
 ## 授权
 

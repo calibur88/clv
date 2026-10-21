@@ -45,6 +45,7 @@ set(CLV_SOURCES ${CLV_SOURCES}
     # clv::pace（呈现节器件：主时钟口径与逐帧判定，不依赖任何播放器库，不开线程不睡）
     src/pace/clv_pace.cpp
 
-    # clv::platform 公共部分（唯一选源处）
+    # clv::platform 公共部分（唯一选源处 + 与平台无关的内存缓冲区后端）
     platform/fileio/impl_fileio.cpp
+    platform/fileio/memory_fileio.cpp
 )

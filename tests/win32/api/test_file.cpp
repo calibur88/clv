@@ -1,6 +1,7 @@
 #include "CLV_File.h"
 
 #include "gtest/gtest.h"
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <string>
@@ -353,16 +354,200 @@ TEST(ClvFile, NullHandleIsRejectedByEveryFunction)
 	CLV_CloseFile(nullptr);
 }
 
-TEST(ClvFile, MemoryFileBackendIsAnUnimplementedPlaceholder)
+TEST(ClvFile, MemoryReadHandleSeesCapacityAndEndsCleanly)
 {
-	std::vector<uint8_t> buffer(16, 0);
-	CLV_File* handle = reinterpret_cast<CLV_File*>(0x1);
-	EXPECT_EQ(CLV_OpenMemoryFile(buffer.data(), buffer.size(), &handle), CLV_FILE_UNSUPPORTED);
-	EXPECT_EQ(handle, nullptr) << "占位实现必须把出参置空，不许留野指针";
+	std::vector<uint8_t> buffer { 1, 2, 3, 4, 5 };
+	CLV_File* h = nullptr;
+	ASSERT_EQ(CLV_OpenMemoryFile(buffer.data(), buffer.size(), CLV_FILE_MODE_READ, &h), CLV_FILE_OK);
+	ASSERT_NE(h, nullptr);
 
-	CLV_File* null_out = nullptr;
-	EXPECT_EQ(CLV_OpenMemoryFile(nullptr, 0, nullptr), CLV_FILE_UNSUPPORTED);
-	EXPECT_EQ(CLV_OpenMemoryFile(nullptr, 0, &null_out), CLV_FILE_UNSUPPORTED);
+	uint64_t size = 0;
+	EXPECT_EQ(CLV_FileSize(h, &size), CLV_FILE_OK);
+	EXPECT_EQ(size, static_cast<uint64_t>(buffer.size())) << "只读句柄的 Size 是容量，与游标无关";
+
+	uint8_t out[8] = { 0 };
+	size_t got = 0;
+	EXPECT_EQ(CLV_ReadFile(h, out, sizeof(out), &got), CLV_FILE_OK) << "短读不是失败";
+	EXPECT_EQ(got, buffer.size());
+	EXPECT_TRUE(std::equal(buffer.begin(), buffer.end(), out));
+
+	got = 99;
+	EXPECT_EQ(CLV_ReadFile(h, out, sizeof(out), &got), CLV_FILE_OK) << "到末尾再读是 OK + 0 字节";
+	EXPECT_EQ(got, 0u);
+
+	// 只读句柄上的写落在模式门控档，且文件面自此不再产出 UNSUPPORTED
+	size_t written = 7;
+	const CLV_FileError rc = CLV_WriteFile(h, "x", 1, &written);
+	EXPECT_EQ(rc, CLV_FILE_WRITE_FAILED);
+	EXPECT_NE(rc, CLV_FILE_UNSUPPORTED) << "值 9 在本次落地后是留白号位，任何入口都不该产出它";
+	EXPECT_EQ(written, 0u);
+	CLV_CloseFile(h);
+}
+
+TEST(ClvFile, MemoryOpenArgumentTiersAndEmptyBuffer)
+{
+	std::vector<uint8_t> buffer(4, 0);
+	CLV_File* h = nullptr;
+	// 模式在打开时定死一侧：这里取 READ，要写就另开一把 WRITE 句柄（与文件面同一条门控）。
+	// 这里钉的是两件事：入参档的归属，以及文件面自此不再产出值 9。
+	ASSERT_EQ(CLV_OpenMemoryFile(buffer.data(), buffer.size(), CLV_FILE_MODE_READ, &h), CLV_FILE_OK);
+	ASSERT_NE(h, nullptr);
+	CLV_CloseFile(h);
+
+	EXPECT_EQ(CLV_OpenMemoryFile(buffer.data(), buffer.size(), CLV_FILE_MODE_READ, nullptr), CLV_FILE_INVALID_ARGUMENT)
+		<< "出参为空属参数档";
+	CLV_File* out = reinterpret_cast<CLV_File*>(0x1);
+	EXPECT_EQ(CLV_OpenMemoryFile(nullptr, 3, CLV_FILE_MODE_READ, &out), CLV_FILE_INVALID_ARGUMENT) << "有容量却没缓冲";
+	EXPECT_EQ(out, nullptr) << "失败路径必须置空，不许留野指针";
+
+	// 容量 0 是合法的空缓冲区：三条读判都要有确定答案，不是 INVALID_ARGUMENT
+	CLV_File* empty = nullptr;
+	ASSERT_EQ(CLV_OpenMemoryFile(nullptr, 0, CLV_FILE_MODE_READ, &empty), CLV_FILE_OK);
+	ASSERT_NE(empty, nullptr);
+	uint64_t size = 99;
+	EXPECT_EQ(CLV_FileSize(empty, &size), CLV_FILE_OK);
+	EXPECT_EQ(size, 0u);
+	uint8_t one = 0;
+	size_t got = 99;
+	EXPECT_EQ(CLV_ReadFile(empty, &one, 4, &got), CLV_FILE_OK)
+		<< "给了缓冲就是一次合法短读：容量 0 ⇒ 完成量 0，不是失败";
+	EXPECT_EQ(got, 0u);
+	got = 99;
+	EXPECT_EQ(CLV_ReadFile(empty, nullptr, 4, &got), CLV_FILE_INVALID_ARGUMENT)
+		<< "非零 size 配空缓冲，与文件后端同落参数档";
+	EXPECT_EQ(got, 0u);
+	EXPECT_EQ(CLV_ReadFile(empty, nullptr, 0, &got), CLV_FILE_OK) << "size 为 0 时不碰指针，这一档仍是 OK + 0 字节";
+	EXPECT_EQ(got, 0u);
+	size_t wr = 99;
+	EXPECT_EQ(CLV_WriteFile(empty, "x", 1, &wr), CLV_FILE_WRITE_FAILED);
+	EXPECT_EQ(wr, 0u);
+	CLV_CloseFile(empty);
+
+	// 写侧的空指针档要用 WRITE 句柄来钉：READ 句柄上的写先被模式门控挡住，落不到参数档
+	CLV_File* wn = nullptr;
+	ASSERT_EQ(CLV_OpenMemoryFile(buffer.data(), buffer.size(), CLV_FILE_MODE_WRITE, &wn), CLV_FILE_OK);
+	wr = 99;
+	EXPECT_EQ(CLV_WriteFile(wn, nullptr, 1, &wr), CLV_FILE_INVALID_ARGUMENT) << "非零 size 配空指针，读写两侧同档";
+	EXPECT_EQ(wr, 0u);
+	wr = 99;
+	EXPECT_EQ(CLV_WriteFile(wn, nullptr, 0, &wr), CLV_FILE_OK) << "size 为 0 时不碰指针，写侧也是 OK + 0 字节";
+	EXPECT_EQ(wr, 0u);
+	EXPECT_EQ(buffer[0], 0) << "两次没写成的调用不该动宿主缓冲一个字节";
+	CLV_CloseFile(wn);
+}
+
+TEST(ClvFile, MemoryBufferStaysOwnedByCallerAcrossCloseAndHandlesAreIndependent)
+{
+	std::vector<uint8_t> buffer { 10, 20, 30, 40 };
+
+	CLV_File* a = nullptr;
+	CLV_File* b = nullptr;
+	ASSERT_EQ(CLV_OpenMemoryFile(buffer.data(), buffer.size(), CLV_FILE_MODE_READ, &a), CLV_FILE_OK);
+	ASSERT_EQ(CLV_OpenMemoryFile(buffer.data(), buffer.size(), CLV_FILE_MODE_READ, &b), CLV_FILE_OK);
+
+	uint8_t one = 0;
+	size_t got = 0;
+	EXPECT_EQ(CLV_ReadFile(a, &one, 1, &got), CLV_FILE_OK);
+	EXPECT_EQ(one, 10);
+	EXPECT_EQ(CLV_ReadFile(b, &one, 1, &got), CLV_FILE_OK) << "两把句柄各记自己的游标，互不干涉";
+	EXPECT_EQ(one, 10);
+
+	CLV_CloseFile(a);
+	CLV_CloseFile(b);
+
+	// 关闭之后宿主仍可读写那块内存：库没有 free、也没有接管
+	buffer[0] = 99;
+	EXPECT_EQ(CLV_OpenMemoryFile(buffer.data(), buffer.size(), CLV_FILE_MODE_READ, &a), CLV_FILE_OK);
+	ASSERT_NE(a, nullptr);
+	EXPECT_EQ(CLV_ReadFile(a, &one, 1, &got), CLV_FILE_OK);
+	EXPECT_EQ(one, 99) << "句柄关闭不该动宿主的缓冲";
+	CLV_CloseFile(a);
+}
+
+TEST(ClvFile, MemoryWriteHandleKeepsCapacityFixedAndReportsHighWater)
+{
+	std::vector<uint8_t> buffer(8, 0xAA);
+	CLV_File* w = nullptr;
+	ASSERT_EQ(CLV_OpenMemoryFile(buffer.data(), buffer.size(), CLV_FILE_MODE_WRITE, &w), CLV_FILE_OK);
+	ASSERT_NE(w, nullptr);
+
+	uint64_t size = 99;
+	ASSERT_EQ(CLV_FileSize(w, &size), CLV_FILE_OK);
+	EXPECT_EQ(size, 0u) << "写档句柄的 Size 是高水位，刚打开时是 0";
+
+	size_t written = 99;
+	EXPECT_EQ(CLV_WriteFile(w, "abc", 3, &written), CLV_FILE_OK);
+	EXPECT_EQ(written, 3u);
+	EXPECT_EQ(buffer[0], 'a');
+	EXPECT_EQ(buffer[2], 'c');
+
+	// 越界那一次整次拒：既不半写，也不扩缓冲
+	size_t refused = 99;
+	const CLV_FileError rc = CLV_WriteFile(w, "0123456789", 10, &refused);
+	EXPECT_EQ(rc, CLV_FILE_WRITE_FAILED);
+	EXPECT_EQ(refused, 0u) << "越界那次的完成量是已知的 0，不许留旧值";
+	const CLV_FileError rc2 = CLV_WriteFile(w, "ab", 2, &refused);
+	EXPECT_EQ(rc2, CLV_FILE_OK) << "游标仍在 3，容量内就该写得进";
+	EXPECT_EQ(refused, 2u);
+
+	ASSERT_EQ(CLV_FileSize(w, &size), CLV_FILE_OK);
+	EXPECT_EQ(size, 5u) << "高水位 = 被写覆盖过的最远字节数";
+	CLV_CloseFile(w);
+
+	// 关闭之后由只读句柄读回：宿主缓冲没被库接管
+	CLV_File* r = nullptr;
+	ASSERT_EQ(CLV_OpenMemoryFile(buffer.data(), buffer.size(), CLV_FILE_MODE_READ, &r), CLV_FILE_OK);
+	uint8_t out[3] = { 0 };
+	size_t got = 0;
+	EXPECT_EQ(CLV_ReadFile(r, out, sizeof(out), &got), CLV_FILE_OK);
+	EXPECT_EQ(got, 3u);
+	EXPECT_EQ(out[0], 'a');
+	EXPECT_EQ(out[1], 'b');
+	EXPECT_EQ(out[2], 'c');
+	CLV_CloseFile(r);
+}
+
+TEST(ClvFile, MemoryOpenRejectsAppendAndForeignModesWithoutProducingUnsupported)
+{
+	std::vector<uint8_t> buffer(4, 0);
+	CLV_File* h = reinterpret_cast<CLV_File*>(0x1);
+	const CLV_FileError rc = CLV_OpenMemoryFile(buffer.data(), buffer.size(), CLV_FILE_MODE_APPEND, &h);
+	EXPECT_EQ(rc, CLV_FILE_INVALID_ARGUMENT) << "APPEND 在内存句柄上没有对应概念，落参数档";
+	EXPECT_NE(rc, CLV_FILE_UNSUPPORTED) << "值 9 自此无产出者（留白不复用）";
+	EXPECT_EQ(h, nullptr);
+
+	h = reinterpret_cast<CLV_File*>(0x1);
+	EXPECT_EQ(CLV_OpenMemoryFile(buffer.data(), buffer.size(), static_cast<CLV_FileMode>(99), &h),
+			  CLV_FILE_INVALID_ARGUMENT)
+		<< "越界模式同档";
+	EXPECT_EQ(h, nullptr);
+}
+
+TEST(ClvFile, ModeGatedFailureOnFileHandleWritesZeroOutParam)
+{
+	const std::string path = TempPath("clv_file_mode_gate.txt");
+	std::error_code ec;
+	std::filesystem::remove(path, ec);
+
+	{
+		CLV_File* w = CLV_OpenFile(path.c_str(), CLV_FILE_MODE_WRITE);
+		ASSERT_NE(w, nullptr);
+		CLV_CloseFile(w);
+	}
+	CLV_FileError err = CLV_FILE_INVALID_HANDLE;
+	CLV_File* r = CLV_OpenFileEx(path.c_str(), CLV_FILE_MODE_READ, &err);
+	ASSERT_NE(r, nullptr);
+	ASSERT_EQ(err, CLV_FILE_OK);
+
+	size_t written = 99;
+	EXPECT_EQ(CLV_WriteFile(r, "x", 1, &written), CLV_FILE_WRITE_FAILED);
+	EXPECT_EQ(written, 0u) << "门控挡住时的完成量是已知的 0：文件后端与内存后端同一条";
+
+	uint64_t size = 99;
+	EXPECT_EQ(CLV_FileSize(r, &size), CLV_FILE_OK);
+	EXPECT_EQ(size, 0u);
+	CLV_CloseFile(r);
+	std::filesystem::remove(path, ec);
 }
 
 TEST(ClvFile, StrErrorCoversEveryCode)

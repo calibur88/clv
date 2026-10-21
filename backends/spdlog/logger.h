@@ -27,6 +27,9 @@ namespace clv::backend::spdlog
 
 		void Log(int level, const char* msg) override;
 		void SetLevel(int level) override;
+		int GetLevel() const override;
+		const char* BackendName() const override;
+		int SetStorage(const char* filepath, size_t rotate_size_kb, size_t max_files) override;
 
 		private:
 
