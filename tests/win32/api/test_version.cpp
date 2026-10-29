@@ -107,10 +107,10 @@ TEST(ClvVersion, ProjectVersionTrackIsIndependentFromDocumentVersion)
 	// 两轨可以取同一数值，但来源与变更时机各自独立，所以这里钉的是工程串自己的形状。
 	// 这条刻意把工程号钉成字面量（与上面那条用宏的用例互补），抬版本号时这里五处一起改：
 	// 串两处 + major / minor / patch 各一处。
-	EXPECT_STREQ(CLV_VersionString(), "0.9.0-dev");
-	EXPECT_STREQ(CLV_VERSION_STRING, "0.9.0-dev");
+	EXPECT_STREQ(CLV_VersionString(), "0.9.1-dev");
+	EXPECT_STREQ(CLV_VERSION_STRING, "0.9.1-dev");
 	EXPECT_EQ(CLV_VersionMajor(), 0);
 	EXPECT_EQ(CLV_VersionMinor(), 9);
-	EXPECT_EQ(CLV_VersionPatch(), 0);
-	EXPECT_NE(std::strcmp(CLV_VersionString(), "0.9.0"), 0) << "工程串缺预发布标记，与裸文档号同形";
+	EXPECT_EQ(CLV_VersionPatch(), 1);
+	EXPECT_NE(std::strcmp(CLV_VersionString(), "0.9.1"), 0) << "工程串缺预发布标记，与裸文档号同形";
 }

@@ -157,15 +157,25 @@ def collect_py_files():
 
 
 def collect_md_files():
-    """仓库自有 Markdown：取 git 跟踪清单里的 `.md`，vendored 子目录除外。
+    """仓库自有 Markdown：取 **跟踪清单 + 未跟踪件**（`.gitignore` 排除）里的 `.md`，vendored 子目录除外。
 
-    判据是「这份文本在不在版本库里」，而不是「它在哪棵目录下」——
-    未跟踪的在制品不该被本闸判红，被 `.gitignore` 排除的过程账也不用逐条点名。
-    取不到跟踪清单（不在 git 工作树里跑）时返回空表，由调用方按「这一半没跑成」结算。
+    口径在 0.9.1 改过一次：此前只取跟踪件，理由是「未跟踪的在制品不该被判红」；实际结果是新件在入库前
+    从没被本闸看过一遍——`docs/字幕规范.md` 就是这样带着 9 处 MD040 进库的。现在缺省那一跑就覆盖未跟踪件，
+    不靠「记得传开关」；`--write` 同口径。被 `.gitignore` 排除的过程账仍不点名。
+    取不到清单（不在 git 工作树里跑）时返回空表，由调用方按「这一半没跑成」结算。
     """
     try:
         proc = subprocess.run(
-            ["git", "ls-files", "-z", "--", "*.md"],
+            [
+                "git",
+                "ls-files",
+                "-z",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+                "--",
+                "*.md",
+            ],
             cwd=ROOT,
             check=False,
             capture_output=True,

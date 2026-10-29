@@ -16,8 +16,8 @@
 
 #define CLV_VERSION_MAJOR  0
 #define CLV_VERSION_MINOR  9
-#define CLV_VERSION_PATCH  0
-#define CLV_VERSION_STRING "0.9.0-dev"
+#define CLV_VERSION_PATCH  1
+#define CLV_VERSION_STRING "0.9.1-dev"
 
 #ifdef __cplusplus
 extern "C"
