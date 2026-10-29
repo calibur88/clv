@@ -40,8 +40,10 @@
  *
  * 这三格描述的是**本构建的形状，不随调用改变**：没有任何入口能把一位从 0 翻成 1。
  * 段尾追加，已定义的位永不改义；号 2 尤其如此 —— 宿主注入分配器这件事不做，那位永远是 0。 */
-#define CLV_CAP_MEMORY_FILE	   0x1u /* bit0：内存缓冲句柄可用（文件面的 `CLV_OpenMemoryFile` 是实现态） */
-#define CLV_CAP_LOG_STORAGE	   0x2u /* bit1：日志可落盘。spdlog 后端置 1，空后端置 0 */
-#define CLV_CAP_HOST_ALLOCATOR 0x4u /* bit2：恒 0，且永不赋予新义（库内分配不经公开分配口） */
+#define CLV_CAP_MEMORY_FILE		  0x1u	/* bit0：内存缓冲句柄可用（文件面的 `CLV_OpenMemoryFile` 是实现态） */
+#define CLV_CAP_LOG_STORAGE		  0x2u	/* bit1：日志可落盘。spdlog 后端置 1，空后端置 0 */
+#define CLV_CAP_HOST_ALLOCATOR	  0x4u	/* bit2：恒 0，且永不赋予新义（库内分配不经公开分配口） */
+#define CLV_CAP_SUBTITLE_PARSER	  0x8u	/* bit3：字幕解析/编码在，恒 1 */
+#define CLV_CAP_SUBTITLE_RENDERER 0x10u /* bit4：字幕渲染器在（构型开关 ON 1 / OFF 0） */
 
 #endif	  // CLV_EXPORT_H

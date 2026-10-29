@@ -15,3 +15,5 @@
 *.pcm binary !eol
 *.yuv binary !eol
 *.clv binary !eol
+*.otf binary !eol
+*.ttf binary !eol

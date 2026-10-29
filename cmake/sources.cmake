@@ -42,6 +42,24 @@ set(CLV_SOURCES ${CLV_SOURCES}
     src/video/clv_rgb.cpp
     src/video/clv_video.cpp
 
+    # clv::subtitle（字幕面：包外层 / 样式块 / 解析 / 渲染；公开面见 include/CLV_Subtitle.h）
+    src/subtitle/packet.cpp
+    src/subtitle/style.cpp
+    src/subtitle/core.cpp
+    src/subtitle/parser.cpp
+    src/subtitle/clv_subtitle.cpp
+    src/subtitle/render/renderer.cpp
+
+    # clv::subtitle::cal（七个 CAL 接口、后端选择、降级分发）
+    src/subtitle/cal/cal.cpp
+    backends/text/utf8_simdutf.cpp
+    backends/text/normalize_utf8proc.cpp
+    backends/text/bidi_sheenbidi.cpp
+    backends/text/shape_harfbuzz.cpp
+    backends/text/face_freetype.cpp
+    backends/text/raster_freetype.cpp
+    platform/font/resolve_none.cpp
+
     # clv::pace（呈现节器件：主时钟口径与逐帧判定，不依赖任何播放器库，不开线程不睡）
     src/pace/clv_pace.cpp
 

@@ -99,7 +99,7 @@ extern "C"
 		CLV_VIDEO_REF_FRAME_MISSING = 76, /*  请求的参考锚点不在参考缓冲里 */
 		CLV_VIDEO_OUTPUT_TOO_SMALL,		  /* 调用方给的缓冲或行距不满足库给出的布局。
 											 * 行距装不下这一形状现在由 `CLV_VideoFrameToRGB24` 判入参不成立，
-											 * 库内没有别处产本码 ⇒ 本码无产出点，号位不复用。 */
+											 * 公开入口没有别处产本码 ⇒ 本码无产出点，号位不复用。 */
 		/* 78 是留白号位，不复用（那一档没有产出点）；本条因此显式给值 */
 		CLV_VIDEO_STATE_ERROR = 79, /* 调用顺序不成立：已冲刷后继续喂、未加流就写等 */
 		CLV_VIDEO_OUT_OF_MEMORY,	/* 库内分配失败 */
@@ -435,7 +435,7 @@ extern "C"
 	 * 取帧那一次持有已经还过（同一帧重复归还）。成功归还返回 CLV_VIDEO_OK。
 	 * 重复归还的判点落在「取帧那一次还没还」这道状态闸上，不落在这帧的计数是否归零上：
 	 * 还在参考缓冲里的帧计数本来就大于 1，只判归零会让第二次归还把被引用的帧收走。
-	 * 归还之后该帧指针失效，建议立即置空；此后再次归还同一指针属调用方未定义行为。 */
+	 * 归还之后该帧指针失效，建议立即置空；同一帧在复用前的重复归还判 CLV_VIDEO_INVALID_ARGUMENT（见上），跨复用后的陈旧调用属调用方未定义行为。 */
 	CLV_EXPORT CLV_VideoError CLV_VideoFrameFree(CLV_VideoFrame* f);
 
 	/* 取描述符与信息。desc / info 可为 NULL 表示不要该项。

@@ -158,9 +158,8 @@ TEST(VideoQuant, ErrorBoundHoldsForEveryLegalStep)
 	// q = 1..127 逐值：两块输入的系数域与像素域都不得越界
 	int32_t qf[clv::video::kBlockCoefs];
 	int32_t f2[clv::video::kBlockCoefs];
-	double y_src[clv::video::kBlockCoefs];
-	double y_rec[clv::video::kBlockCoefs];
-	double diff[clv::video::kBlockCoefs];
+	int32_t b_src[clv::video::kBlockCoefs];
+	int32_t b_rec[clv::video::kBlockCoefs];
 	int violations = 0;
 	int32_t worst_ratio_num = 0;
 	int32_t worst_ratio_den = 1;
@@ -180,14 +179,21 @@ TEST(VideoQuant, ErrorBoundHoldsForEveryLegalStep)
 			clv::video::DequantizeBlock(qf, q, f2);
 			int32_t max_err = 0;
 			if (! clv::video::CoefficientBoundOk(block, f2, q, &max_err)) ++violations;
-			clv::video::InverseHadamard8(block, y_src);
-			clv::video::InverseHadamard8(f2, y_rec);
-			for (int i = 0; i < clv::video::kBlockCoefs; ++i) diff[i] = y_src[i] - y_rec[i];
-			double pix_max = 0.0;
-			if (! clv::video::PixelBoundOk(diff, q, &pix_max)) ++violations;
-			// 记录最紧的比值（整数量化：2·err 与 3q−δ）
+			clv::video::InverseHadamard8(block, b_src);
+			clv::video::InverseHadamard8(f2, b_rec);
+			/* 像素域界用整数式判：|b_src − b_rec| / 64 ≤ (3q − δ) / 2 ⇒ 2·|Δb| ≤ 64·(3q − δ)。
+			 * 与浮点式是同一个不等式的两边同乘 64，不经过舍入。 */
 			const int32_t delta = (q & 1u) ? 0 : 1;
 			const int32_t bound2 = 3 * static_cast<int32_t>(q) - delta;
+			for (int i = 0; i < clv::video::kBlockCoefs; ++i)
+			{
+				const int64_t d = static_cast<int64_t>(b_src[i]) - static_cast<int64_t>(b_rec[i]);
+				if (2 * (d < 0 ? -d : d) > 64 * static_cast<int64_t>(bound2))
+				{
+					++violations;
+					break;
+				}
+			}
 			if (2 * max_err * block_worst_den[b] > block_worst_num[b] * bound2)
 			{
 				block_worst_num[b] = 2 * max_err;

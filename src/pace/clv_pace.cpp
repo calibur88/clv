@@ -5,11 +5,12 @@
  * 示例与用例读的是同一份数。
  *
  * 三个口径各管一件事，别并成一谈：
- *   主时钟 = 设备已消费量（累计喂入 − 仍排队），两次取数之间按单调墙钟线性外推，外推顶到喂入上限为止；
- *   起播零点 = 本趟第一次判定那一刻的音频钟，交出去的钟位与趟龄都减它 —— 从放开设备到第一帧出画之间
- *     有一段固定的启动开销（本机实测解码 + 首帧呈现约 20 ms），不减掉的话视频腿一开场就天生低这一截，
- *     带内判定长期钉在带边上，攒到一整个周期外就开始连丢；
- *   墙钟 = 从起播零点起的真实时长，管的是「不许提前出画」。
+ *   主时钟 = 消费端报告的「已消费媒体时间」（`CLV_PaceNoteConsumedMediaTime`）。库不外推、不封顶、不阻尼，
+ *     只在内部保证单调：回退的报告值不采信并计入 `clock_regress`。设备不报，钟就停在原地 —— 那是死队列
+ *     保护层要报警的形状，不是库要替设备编一个进度；
+ *   起播零点 = 放开设备那一刻的报告值，交出去的钟位减它 —— 从放开设备到第一帧出画之间有一段固定的启动
+ *     开销（本机实测解码 + 首帧呈现约 20 ms），不减掉的话视频腿一开场就天生低这一截；
+ *   墙钟 = 从起播零点起的真实时长，只用于死队列判定与「不许提前出画」的出点闸，不再给主钟封顶。
  *
  * 异常不出 C 边界：本层唯一的抛出源是句柄分配，只在 Open 收口成 CLV_PACE_OUT_OF_MEMORY；
  * catch 只接 std::bad_alloc，逻辑错误一律走返回码。
@@ -19,6 +20,7 @@
 #include "status.h"
 
 #include <chrono>
+#include <cstddef>
 #include <new>
 
 namespace
@@ -33,21 +35,31 @@ namespace
 	static_assert(static_cast<int>(PaceErr::kClockSkew) == CLV_PACE_CLOCK_SKEW, "内部码与公开码同序");
 	static_assert(static_cast<int>(PaceErr::kOutOfMemory) == CLV_PACE_OUT_OF_MEMORY, "内部码与公开码同序");
 
-	/* 设备取数的颗粒比帧周期粗（本机实测约 100 ms 一跳），所以锚点之外要按墙钟外推。
-	 * 各量的分工：fed_bytes 累计喂入（BeginPass 清零）；last_queued 最近一次问出来的仍排队字节
-	 * （问不出就沿用，不把失败读成零）；anchor_* 上一次「设备真取走了新数据」的一刻与那时的已消费量；
-	 * origin_* 本趟的起播零点，pass_start_ns 是它对应的墙钟时刻。 */
+	/* 主钟一侧只读 reported / applied / max_report_step；字节账（fed / dropped / shadow_queued / pending_clear）
+	 * 管水位、超扣与减账不变式，不进主钟；墙钟一侧（pass_start / last_now / now_seen）管出点闸与死队列计时。 */
 	struct ClockState
 	{
 		unsigned long long fed_bytes = 0;
+		unsigned long long dropped_bytes = 0;
+		unsigned long long shadow_queued = 0;
 		unsigned long long last_queued = 0;
-		unsigned long long anchor_consumed = 0;
-		unsigned long long anchor_now_ns = 0;
+		unsigned long long pending_clear = 0;
+		unsigned long long reported_ticks = 0;
+		unsigned long long applied_ticks = 0;
+		unsigned long long max_report_step_ticks = 0;
+		unsigned long long last_seen_report = 0;
+		unsigned long long last_progress_ns = 0;
 		unsigned long long pass_start_ns = 0;
+		unsigned long long last_now_ns = 0;
+		unsigned no_progress_streak = 0;
+		unsigned dead_queue_count = 0;
+		unsigned clock_regress = 0;
+		unsigned jump_edge_count = 0;
 		double origin_clock_s = 0.0;
-		double last_abs_s = 0.0; /* 上一次的绝对钟位：主时钟只朝前走 */
-		bool last_abs_valid = false;
-		bool anchor_valid = false;
+		bool reported_valid = false;
+		bool queue_reading_valid = false;
+		bool jump_edge_pending = false;
+		bool now_seen = false;
 		bool origin_set = false;
 		bool running = false;
 		bool pass_started = false;
@@ -60,13 +72,38 @@ struct CLV_Pace
 	CLV_PaceParamsC cfg;
 	ClockState st;
 	unsigned long long bytes_per_second = 0;
+	unsigned long long max_latency_bytes = 0;
+	unsigned long long max_normal_chunk_bytes = 0;
 	double period = 0.0;
 	double half = 0.0;
 	double bps = 0.0;
+	double tick_to_sec = 1e-9; /* 报告时基换算：1 / (timebase_num/timebase_den) */
 };
 
 namespace
 {
+	static_assert(sizeof(CLV_PaceParamsC) == 88u, "本版布局尺寸就是受理判定的尺子，尾部追加字段时必须同步上一版常量");
+	static_assert(sizeof(CLV_PaceDecisionC) == 72u, "同上：写侧按这个长度决定能写到哪一停");
+	/* 前缀的偏移同样是公开承诺：旧尺寸调用方按它读，发行文档那张表也按它写。 */
+	static_assert(offsetof(CLV_PaceDecisionC, struct_size) == 0u, "自报长度恒在第一格");
+	static_assert(offsetof(CLV_PaceDecisionC, action) == 4u, "动作紧随自报长度");
+	static_assert(offsetof(CLV_PaceDecisionC, in_band) == 8u, "三个分类字节排在动作之后");
+	static_assert(offsetof(CLV_PaceDecisionC, late) == 9u, "迟到位紧随带内位");
+	static_assert(offsetof(CLV_PaceDecisionC, pad_) == 10u, "显式填充位是本面唯一的那个 pad");
+	static_assert(offsetof(CLV_PaceDecisionC, dev_seconds) == 16u, "四个 double 从 8 字节边界起排");
+	static_assert(offsetof(CLV_PaceDecisionC, clock_seconds) == 24u, "钟位紧随偏差");
+	static_assert(offsetof(CLV_PaceDecisionC, period_seconds) == 32u, "帧周期紧随钟位");
+	static_assert(offsetof(CLV_PaceDecisionC, wall_seconds) == 40u, "墙龄紧随帧周期");
+	static_assert(offsetof(CLV_PaceDecisionC, wait_ns) == 48u, "等待量是旧布局的末格");
+	/* 尾部偏移是公开承诺：旧尺寸调用方的前缀边界、新字段可读起点都按这几个数判。 */
+	static_assert(offsetof(CLV_PaceDecisionC, watermark) == 56u, "水位量起点 = 旧布局末尾");
+	static_assert(offsetof(CLV_PaceDecisionC, queue_ms) == 60u, "积压毫秒紧跟水位");
+	static_assert(offsetof(CLV_PaceDecisionC, resample_ratio_q16) == 64u, "倍率排在两个 u8 之前，中段不留占位");
+	static_assert(offsetof(CLV_PaceDecisionC, device_jump) == 68u, "边沿位在倍率之后");
+	static_assert(offsetof(CLV_PaceDecisionC, drop_dup_hint) == 69u, "提示紧随边沿；70–71 是隐式填充，库不写它");
+	const unsigned long long kParamsPrevSize = 72ull; /* 尾部追加积压上界与时基之前的布局 */
+	const unsigned kDecisionPrevSize = 56u;			  /* 尾部追加水位量之前的布局 */
+	const unsigned long long kFpsLimit = 1000000ull; /* 分子分母的上界：下面那条 `base × 分母` 要在 64 位里可证不溢出 */
 
 	unsigned long long NowNs(const CLV_Pace& s)
 	{
@@ -78,75 +115,85 @@ namespace
 	bool QueryQueued(CLV_Pace& s, unsigned long long& out)
 	{
 		unsigned long long v = 0;
-		if (s.cfg.queued == nullptr || s.cfg.queued(s.cfg.queued_user, &v) == 0) return false;
+		if (s.cfg.queued == nullptr || s.cfg.queued(s.cfg.queued_user, &v) == 0)
+		{
+			s.st.queue_reading_valid = false;
+			return false;
+		}
+		s.st.queue_reading_valid = true;
 		out = v;
 		s.st.last_queued = v;
 		return true;
 	}
 
-	unsigned long long ConsumedBytes(CLV_Pace& s)
+	/* 影子对平：设备读数是事实，但报过账的那批还没从设备侧消失时读数里仍然含着它，抵掉才是真积压 ——
+	 * 加上去就把同一批字节算两遍。抵不掉的差额只能是设备自己清的，交一次边沿，主钟不动。 */
+	void PollQueue(CLV_Pace& s)
 	{
-		unsigned long long q = s.st.last_queued;
-		(void) QueryQueued(s, q);
-		return s.st.fed_bytes > q ? s.st.fed_bytes - q : 0ull;
+		const unsigned long long prev = s.st.last_queued;
+		unsigned long long raw = prev;
+		if (! QueryQueued(s, raw)) return;	  // 问不出就沿上次的读数，水位另判 UNKNOWN
+		const unsigned long long fall = prev > raw ? prev - raw : 0ull;
+		const unsigned long long absorb = fall < s.st.pending_clear ? fall : s.st.pending_clear;
+		s.st.pending_clear -= absorb;
+		s.st.shadow_queued = raw > s.st.pending_clear ? raw - s.st.pending_clear : 0ull;
+		if (fall - absorb > s.cfg.backpressure_bytes && fall - absorb > s.max_normal_chunk_bytes)
+		{
+			s.st.jump_edge_pending = true;
+			s.st.jump_edge_count++;
+		}
 	}
 
-	/* 绝对钟位。两处起钟修正都落在这一层：
-	 *   设备未放开 ⇒ 不外推，钟停在已消费量上（预灌期那段不计入已消费）
-	 *   取到新消费 ⇒ 以这一刻重设锚点
-	 *   锚点尚未登记 ⇒ 也走重设，绝不允许拿 now − 0 当外推时长（那会把整段程序运行时间灌进钟位） */
+	/* 基准在前才有差值：钟回退过就取 0，而不是让无符号相减回绕成几百年 */
+	unsigned long long DeltaNs(unsigned long long now_ns, unsigned long long base_ns)
+	{
+		return now_ns > base_ns ? now_ns - base_ns : 0ull;
+	}
+
+	/* 取一次墙钟。回退 ⇒ 把墙钟基准挪到这一刻并返回 CLOCK_SKEW，交出去的钟位本身不受影响：
+	 * 主钟只跟消费端的报告值走，墙钟只管出点闸与死队列计时。 */
+	PaceErr TakeNow(CLV_Pace& s, unsigned long long& out_ns)
+	{
+		const unsigned long long now = NowNs(s);
+		const PaceErr e = (s.st.now_seen && now < s.st.last_now_ns) ? PaceErr::kClockSkew : PaceErr::kOk;
+		if (e == PaceErr::kClockSkew)
+		{
+			s.st.pass_start_ns = now;
+			s.st.last_progress_ns = now;
+		}
+		s.st.now_seen = true;
+		s.st.last_now_ns = now;
+		out_ns = now;
+		return e;
+	}
+
+	/* 绝对钟位 = 消费端报告的已消费媒体时间，库内只保证单调。
+	 * 不封顶、不外推、不阻尼：设备不报，钟就停 —— 死队列保护会报警，库不替设备编进度。 */
 	PaceErr ClockAbsRaw(CLV_Pace& s, double& out_seconds)
 	{
 		if (! s.st.pass_started) return PaceErr::kStateError;
-		const unsigned long long now = NowNs(s);
-		const unsigned long long consumed = ConsumedBytes(s);
-
-		if (! s.st.running || ! s.st.anchor_valid || consumed != s.st.anchor_consumed)
-		{
-			s.st.anchor_consumed = consumed;
-			s.st.anchor_now_ns = now;
-			s.st.anchor_valid = true;
-			out_seconds = static_cast<double>(consumed) / s.bps;
-			return PaceErr::kOk;
-		}
-
-		if (now < s.st.anchor_now_ns)
-		{
-			/* 调用方供的钟回退了：外推没有起算点，重登记锚点并只报实际已消费量。 */
-			s.st.anchor_consumed = consumed;
-			s.st.anchor_now_ns = now;
-			out_seconds = static_cast<double>(consumed) / s.bps;
-			return PaceErr::kClockSkew;
-		}
-
-		/* 外推顶到「已喂入」为止：设备播不出还没交给它的数据。放开这个上限，等待期间的钟会一路冲到并不存在
-		 * 的数据上，下一次真实取位又把钟猛拉回来，dev 一步跨出丢帧阈 —— 假设备用例里 30 帧丢 20 帧就是这么来的。 */
-		double est = static_cast<double>(consumed) + static_cast<double>(now - s.st.anchor_now_ns) * 1e-9 * s.bps;
-		if (est > static_cast<double>(s.st.fed_bytes)) est = static_cast<double>(s.st.fed_bytes);
-		out_seconds = est / s.bps;
+		PollQueue(s); /* 影子对平与跳变边沿在这一拍走一遍：水位、闸门与超扣校验读的都是这套账 */
+		if (s.st.reported_ticks > s.st.applied_ticks) s.st.applied_ticks = s.st.reported_ticks;
+		out_seconds = static_cast<double>(s.st.applied_ticks) * s.tick_to_sec;
 		return PaceErr::kOk;
 	}
 
-	/* 交出去的钟位一律相对本趟起播零点：第一次调用（读钟或判定都行）把零点定在那一刻的绝对钟位，
-	 * 并把墙钟起点同步到同一时刻。此后 dev 量的就只是两轨之间的漂移，不含「放开设备到第一帧出画」那段启动开销。 */
-	PaceErr ClockRel(CLV_Pace& s, double& out_seconds)
+	/* 交出去的钟位一律相对本趟起播零点：零点取「放开设备那一刻的报告值」，与主钟同一条源，
+	 * 不掺字节账 —— 两条不同源时，相对钟位会算出负值。 */
+	PaceErr ClockRel(CLV_Pace& s, unsigned long long now_ns, double& out_seconds)
 	{
 		double abs_s = 0.0;
 		const PaceErr e = ClockAbsRaw(s, abs_s);
-		/* 主时钟单调：设备按整块取数（本机 100 ms 一块），取数那一刻重锚会把已外推的相位丢掉，
-		 * 钟就呈锯齿状往回跳 —— 每一跳都把 dev 顶成正的「视频超前」，于是每隔两三帧白等一次，
-		 * 攒久了视频腿整体落后墙钟二十来毫秒，最后跨过丢帧阈。取位只认更大的那个值。 */
-		if (s.st.last_abs_valid && abs_s < s.st.last_abs_s) abs_s = s.st.last_abs_s;
-		s.st.last_abs_s = abs_s;
-		s.st.last_abs_valid = true;
-		if (e != PaceErr::kOk && e != PaceErr::kClockSkew) return e;
+		if (e != PaceErr::kOk) return e;
 		if (! s.st.origin_set)
 		{
 			s.st.origin_set = true;
 			s.st.origin_clock_s = abs_s;
-			s.st.pass_start_ns = NowNs(s);
+			s.st.pass_start_ns = now_ns;
+			s.st.last_progress_ns = now_ns;
 		}
 		out_seconds = abs_s - s.st.origin_clock_s;
+		if (out_seconds < 0.0) out_seconds = 0.0;
 		return e;
 	}
 
@@ -167,8 +214,9 @@ extern "C"
 			report(PaceErr::kInvalidArgument);
 			return nullptr;
 		}
-		/* 只认「不小于本版已知布局」：等值判会把尾部追加字段变成破坏性改动。 */
-		if (params->struct_size < sizeof(CLV_PaceParamsC))
+		/* 三档受理：0、上一版尺寸、本版尺寸都收；非零且比上一版小才拒。
+		 * 按长度逐字段判读，不整块拷贝 —— 整块拷会读进旧调用方 buffer 之外的字节。 */
+		if (params->struct_size != 0u && params->struct_size < kParamsPrevSize)
 		{
 			report(PaceErr::kInvalidArgument);
 			return nullptr;
@@ -189,6 +237,13 @@ extern "C"
 			report(PaceErr::kValueRange);
 			return nullptr;
 		}
+		/* 分子分母都不许越过 1e6：`base × 分母` 要在 64 位里可证不溢出。
+		 * timebase 是本版尾部追加的字段，递交长度不够时不去读它——读就越界。 */
+		if (params->fps_num > kFpsLimit || params->fps_den > kFpsLimit)
+		{
+			report(PaceErr::kValueRange);
+			return nullptr;
+		}
 
 		CLV_Pace* handle = nullptr;
 		try
@@ -201,7 +256,44 @@ extern "C"
 			return nullptr;
 		}
 
-		handle->cfg = *params;
+		handle->cfg.struct_size = sizeof(CLV_PaceParamsC);
+		handle->cfg.fps_num = params->fps_num;
+		handle->cfg.fps_den = params->fps_den;
+		handle->cfg.sample_rate = params->sample_rate;
+		handle->cfg.bytes_per_frame = params->bytes_per_frame;
+		handle->cfg.backpressure_bytes = params->backpressure_bytes;
+		handle->cfg.preroll_bytes = params->preroll_bytes;
+		handle->cfg.queued = params->queued;
+		handle->cfg.now = params->now;
+		handle->cfg.queued_user = params->queued_user;
+		handle->cfg.now_user = params->now_user;
+		/* 尾部新字段：只有递交长度够时才读，否则取库内缺省。 */
+		handle->cfg.max_latency_bytes = 0ull;
+		handle->cfg.timebase_num = 0u;
+		handle->cfg.timebase_den = 0u;
+		if (params->struct_size >= sizeof(CLV_PaceParamsC))
+		{
+			handle->cfg.max_latency_bytes = params->max_latency_bytes;
+			handle->cfg.timebase_num = params->timebase_num;
+			handle->cfg.timebase_den = params->timebase_den;
+		}
+		if (handle->cfg.timebase_num == 0u || handle->cfg.timebase_den == 0u)
+		{
+			handle->cfg.timebase_num = 1000000000u; /* 缺省时基 = 纳秒，与内部单调钟同一把尺 */
+			handle->cfg.timebase_den = 1u;
+		}
+		/* 时基要能整除，并且 `时基 × 帧率分母` 在 64 位里可证不溢出：这才是真正需要防的乘法。
+		 * 不去给时基本身设绝对上限——纳秒时基就是 1e9，任何小于它的常数都会把缺省值判死。 */
+		const unsigned long long tb = handle->cfg.timebase_num / handle->cfg.timebase_den;
+		if (handle->cfg.timebase_den > kFpsLimit || handle->cfg.timebase_num % handle->cfg.timebase_den != 0u ||
+			tb > 0xFFFFFFFFFFFFFFFFull / (kFpsLimit * 2ull))
+		{
+			delete handle;
+			report(PaceErr::kValueRange);
+			return nullptr;
+		}
+		handle->tick_to_sec =
+			static_cast<double>(handle->cfg.timebase_den) / static_cast<double>(handle->cfg.timebase_num);
 		handle->bytes_per_second = static_cast<unsigned long long>(params->sample_rate) * params->bytes_per_frame;
 		handle->bps = static_cast<double>(handle->bytes_per_second);
 		handle->period = static_cast<double>(params->fps_den) / static_cast<double>(params->fps_num);
@@ -212,6 +304,10 @@ extern "C"
 		 * 缺省要落在自然峰值之上；它仍是内存上界，只是把上界放到一秒钟的音频当量。 */
 		if (handle->cfg.backpressure_bytes == 0ull) handle->cfg.backpressure_bytes = handle->bytes_per_second;
 		if (handle->cfg.preroll_bytes == 0ull) handle->cfg.preroll_bytes = handle->bytes_per_second / 5ull;
+		handle->max_latency_bytes = handle->cfg.max_latency_bytes != 0ull ?
+										handle->cfg.max_latency_bytes :
+										handle->bytes_per_second * 2ull;   /* 缺省 2000 ms 当量 */
+		handle->max_normal_chunk_bytes = handle->bytes_per_second / 10ull; /* 一记取数块 = 100 ms 当量 */
 
 		if (err != nullptr) *err = CLV_PACE_OK;
 		return handle;
@@ -219,7 +315,7 @@ extern "C"
 
 	CLV_EXPORT void CLV_PaceClose(CLV_Pace* p) { delete p; }
 
-	/* 起一趟：累计喂入、外推锚点、起播零点与墙钟起点全部作废。循环播放时每趟都要调，
+	/* 起一趟：累计喂入、影子排队账、报告值、起播零点与墙钟起点全部作废。循环播放时每趟都要调，
 	 * 否则第二趟会继承第一趟的残留（实测形态：钟位凭空超前 ~53 ms，从第一帧起一路被判定迟到而连丢）。 */
 	CLV_EXPORT CLV_PaceError CLV_PaceBeginPass(CLV_Pace* p)
 	{
@@ -242,11 +338,12 @@ extern "C"
 		if (p->st.running && ! was_running && ! p->st.origin_set)
 		{
 			p->st.pass_start_ns = NowNs(*p);
-			p->st.origin_clock_s = static_cast<double>(ConsumedBytes(*p)) / p->bps;
+			/* 零点与主钟同一条源：取此刻的报告值。换成别的量起算，相对钟位就可能被判成负。 */
+			p->st.origin_clock_s = static_cast<double>(p->st.applied_ticks) * p->tick_to_sec;
 			p->st.origin_set = true;
+			p->st.last_progress_ns = p->st.pass_start_ns;
 		}
-		/* 放开与按住都作废外推锚点：暂停期间设备没消费，留着旧锚会把整段暂停时长外推进钟位。 */
-		p->st.anchor_valid = false;
+		/* 这个开关不改钟位：只管起播零点定在第一次放开的那一刻，以及死队列计时只在放开时走。 */
 		return CLV_PACE_OK;
 	}
 
@@ -255,6 +352,53 @@ extern "C"
 		if (p == nullptr) return static_cast<CLV_PaceError>(PaceErr::kInvalidHandle);
 		if (! p->st.pass_started) return static_cast<CLV_PaceError>(PaceErr::kStateError);
 		p->st.fed_bytes += bytes_added;
+		p->st.shadow_queued += bytes_added; /* 交进流里的字节先记在影子账上，等设备的排队读数来对平 */
+		return CLV_PACE_OK;
+	}
+
+	CLV_EXPORT CLV_PaceError CLV_PaceNoteConsumedMediaTime(CLV_Pace* p, uint64_t media_ticks)
+	{
+		if (p == nullptr) return static_cast<CLV_PaceError>(PaceErr::kInvalidHandle);
+		if (! p->st.pass_started) return static_cast<CLV_PaceError>(PaceErr::kStateError);
+		if (p->st.reported_valid && media_ticks < p->st.reported_ticks)
+		{
+			p->st.clock_regress++; /* 不采信，只记一笔拒收 */
+			return static_cast<CLV_PaceError>(PaceErr::kStateError);
+		}
+		if (p->st.reported_valid && media_ticks > p->st.reported_ticks)
+		{
+			const unsigned long long step = media_ticks - p->st.reported_ticks;
+			if (step > p->st.max_report_step_ticks) p->st.max_report_step_ticks = step;
+		}
+		p->st.reported_ticks = media_ticks;
+		p->st.reported_valid = true;
+		return CLV_PACE_OK;
+	}
+
+	/* 减账口：先报后清。校验取影子排队量，与设备清队的先后无关。 */
+	CLV_EXPORT CLV_PaceError CLV_PaceNoteAudioDropped(CLV_Pace* p, uint64_t bytes_dropped)
+	{
+		if (p == nullptr) return static_cast<CLV_PaceError>(PaceErr::kInvalidHandle);
+		if (! p->st.pass_started) return static_cast<CLV_PaceError>(PaceErr::kStateError);
+		(void) PollQueue(*p);
+		if (bytes_dropped > p->st.shadow_queued) return static_cast<CLV_PaceError>(PaceErr::kInvalidArgument);
+		p->st.fed_bytes -= bytes_dropped;
+		p->st.shadow_queued -= bytes_dropped;
+		p->st.dropped_bytes += bytes_dropped;
+		p->st.pending_clear += bytes_dropped; /* 等设备的排队读数掉下来时抵掉，不重复计成已消费 */
+		return CLV_PACE_OK;
+	}
+
+	/* 诊断量一次交出：死队列报警次数、回退拒收次数、跳变边沿次数、自报减账累计。
+	 * 这些都是旁路量，不参与主钟与判定。 */
+	CLV_EXPORT CLV_PaceError CLV_PaceStats(CLV_Pace* p, uint32_t* out_dead_queue_count, uint32_t* out_clock_regress,
+										   uint32_t* out_jump_edges, uint64_t* out_dropped_bytes)
+	{
+		if (p == nullptr) return static_cast<CLV_PaceError>(PaceErr::kInvalidHandle);
+		if (out_dead_queue_count != nullptr) *out_dead_queue_count = p->st.dead_queue_count;
+		if (out_clock_regress != nullptr) *out_clock_regress = p->st.clock_regress;
+		if (out_jump_edges != nullptr) *out_jump_edges = p->st.jump_edge_count;
+		if (out_dropped_bytes != nullptr) *out_dropped_bytes = p->st.dropped_bytes;
 		return CLV_PACE_OK;
 	}
 
@@ -262,18 +406,30 @@ extern "C"
 	{
 		if (p == nullptr) return static_cast<CLV_PaceError>(PaceErr::kInvalidHandle);
 		if (out_seconds == nullptr) return static_cast<CLV_PaceError>(PaceErr::kInvalidArgument);
-		return static_cast<CLV_PaceError>(ClockRel(*p, *out_seconds));
+		unsigned long long now_ns = 0ull;
+		const PaceErr sk = TakeNow(*p, now_ns);
+		double sec = 0.0;
+		const PaceErr e = ClockRel(*p, now_ns, sec);
+		if (e != PaceErr::kOk) return static_cast<CLV_PaceError>(e);
+		*out_seconds = sec;
+		return static_cast<CLV_PaceError>(sk);
 	}
 
 	CLV_EXPORT CLV_PaceError CLV_PaceDecide(CLV_Pace* p, double video_pts_seconds, CLV_PaceDecisionC* out)
 	{
 		if (p == nullptr) return static_cast<CLV_PaceError>(PaceErr::kInvalidHandle);
 		if (out == nullptr) return static_cast<CLV_PaceError>(PaceErr::kInvalidArgument);
-		if (out->struct_size < sizeof(CLV_PaceDecisionC)) return static_cast<CLV_PaceError>(PaceErr::kInvalidArgument);
+		/* 三档受理 + 按长度控写：非零且比上一版小才拒；旧尺寸只写前缀，尾部一个字节都不碰。 */
+		if (out->struct_size != 0u && out->struct_size < kDecisionPrevSize)
+			return static_cast<CLV_PaceError>(PaceErr::kInvalidArgument);
+		const bool write_tail = out->struct_size >= sizeof(CLV_PaceDecisionC);
 
+		/* 一拍只取一次钟：出点闸与死队列计时用的是同一个 now，取两次就会把这一拍的间隔算进出点里。 */
+		unsigned long long now_ns = 0ull;
+		const PaceErr skew = TakeNow(*p, now_ns);
 		double clock = 0.0;
-		const PaceErr e = ClockRel(*p, clock);
-		if (e != PaceErr::kOk && e != PaceErr::kClockSkew) return static_cast<CLV_PaceError>(e);
+		const PaceErr ce = ClockRel(*p, now_ns, clock);
+		if (ce != PaceErr::kOk) return static_cast<CLV_PaceError>(ce);
 
 		const double dev = video_pts_seconds - clock;
 		out->dev_seconds = dev;
@@ -284,15 +440,37 @@ extern "C"
 		out->late = dev < 0.0 ? 1u : 0u;
 		out->pad_ = 0u;
 
+		/* 死队列保护：设备在播而连续 3 次判定或 500 ms 无进展（取先到）⇒ 计数，不自动重锚。
+		 * 「一条都没报」与「报同一个值」是同一个形状；按住的那段不计，那时候没有该有进展的预期。 */
+		if (p->st.running && p->st.reported_ticks == p->st.last_seen_report)
+		{
+			if (++p->st.no_progress_streak >= 3u ||
+				(p->st.last_progress_ns != 0ull && DeltaNs(now_ns, p->st.last_progress_ns) >= 500000000ull))
+			{
+				p->st.dead_queue_count++;
+				p->st.no_progress_streak = 0u;
+				p->st.last_progress_ns = now_ns;
+			}
+		}
+		else
+		{
+			p->st.last_seen_report = p->st.reported_ticks;
+			p->st.no_progress_streak = 0u;
+			p->st.last_progress_ns = now_ns;
+		}
+
 		/* 两道闸，各管一头：
 		 *   墙钟闸（pts 还没到出点）⇒ 不许提前出画，否则视频计数跑在真实时间前面，整段先冲高再被甩下；
-		 *   音频闸（dev > 0）⇒ 视频超前于音频钟，要压住；追到带心而不是带边，带边只用于统计 in_band。
-		 * 等待取两者的较大值；出点已过而音频钟仍追不上时按出点出画，不拿一条追不上的钟把画面按住整段。 */
-		const double wall_s = static_cast<double>(NowNs(*p) - p->st.pass_start_ns) * 1e-9;
+		 *   音频闸（dev > 0）⇒ 视频超前于主钟，要压住；追到带心而不是带边，带边只用于统计 in_band。
+		 * 等待取两者的较大值；出点已过而主钟仍追不上时按出点出画，不拿一条追不上的钟把画面按住整段。 */
+		const double wall_s = static_cast<double>(DeltaNs(now_ns, p->st.pass_start_ns)) * 1e-9;
 		const double deadline_wait = video_pts_seconds > wall_s ? video_pts_seconds - wall_s : 0.0;
 		const double audio_wait = dev > p->half ? dev - p->half : 0.0;
 		out->wall_seconds = wall_s;
-		if (dev < -p->period)
+		/* 丢帧阈 = 一个帧周期 + 实测最大报告步长：块状取数的设备两次报告之间本就跳一格，
+		 * 那一格不是迟到。步长是量出来的器件形状，不是拍的常数。 */
+		const double drop_thresh = p->period + static_cast<double>(p->st.max_report_step_ticks) * p->tick_to_sec;
+		if (dev < -drop_thresh)
 		{
 			out->action = CLV_PACE_ACT_DROP;
 			out->wait_ns = 0ull;
@@ -309,7 +487,29 @@ extern "C"
 			out->action = CLV_PACE_ACT_PRESENT;
 			out->wait_ns = 0ull;
 		}
-		return static_cast<CLV_PaceError>(e);
+
+		if (write_tail)
+		{
+			const unsigned long long q = p->st.shadow_queued;
+			const double q_ms = p->bps > 0.0 ? static_cast<double>(q) * 1000.0 / p->bps : 0.0;
+			const bool unknown = ! p->st.queue_reading_valid; /* 没给回调与这一次问不出，都算问不出 */
+			out->watermark =
+				unknown ? 3u : (q > p->max_latency_bytes ? 2u : (q > p->max_latency_bytes / 2ull ? 1u : 0u));
+			out->queue_ms =
+				unknown ? 0u : static_cast<uint32_t>(q_ms < 0.0 ? 0.0 : (q_ms > 4294967.0 ? 4294967.0 : q_ms));
+			out->device_jump = p->st.jump_edge_pending ? 1u : 0u;
+			p->st.jump_edge_pending = false; /* 边沿只交一次 */
+			/* 速率匹配提示按内容偏差给：视频落后主钟超过一周期 ⇒ 丢；超前超过两周期 ⇒ 重帧。 */
+			out->drop_dup_hint = dev < -p->period ? 1u : (dev > 2.0 * p->period ? 2u : 0u);
+			/* 尾部对齐用的两个字节是隐式填充：库不写它，也不承诺它的值。 */
+			/* 建议倍率 = 队列偏差的比例校正，钳在 ±5 %：积压高于带心就催快，低于就压慢。 */
+			const double target_bytes = static_cast<double>(p->max_latency_bytes) / 2.0;
+			double cmd = 1.0 + (target_bytes > 0.0 ? (q - target_bytes) / target_bytes * 0.1 : 0.0);
+			if (cmd < 0.95) cmd = 0.95;
+			if (cmd > 1.05) cmd = 1.05;
+			out->resample_ratio_q16 = static_cast<uint32_t>(cmd * 65536.0 + 0.5);
+		}
+		return static_cast<CLV_PaceError>(skew);
 	}
 
 	CLV_EXPORT CLV_PaceError CLV_PaceFeedAllowed(CLV_Pace* p, uint8_t* out_allowed)

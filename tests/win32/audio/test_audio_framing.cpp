@@ -652,7 +652,7 @@ TEST(AudioFraming, ErrorCodesStayInsideAudioSegment)
 	// 段尾追加的两个解读面码值钉死，未分配区的起点随之下移
 	EXPECT_EQ(static_cast<int>(CLV_AUDIO_METADATA_MALFORMED), 48);
 	EXPECT_EQ(static_cast<int>(CLV_AUDIO_COMMENT_KEY_NOT_FOUND), 49);
-	/* 段内 32..49 逐个要有名字，但 41 与 45 是退场留下的空位（号位留着不复用），
+	/* 段内 32..49 逐个要有名字，但 41 与 45 是不进表的留白号位（号位不复用），
 	 * 这两格与 1..31、50..63 同判 unknown——「空位没人占」这句话只有这样才能守住。 */
 	for (int v = 32; v <= 49; ++v)
 	{

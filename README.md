@@ -1,14 +1,14 @@
 # CLV
 
-> 本文是 CLV 仓库的入口说明。当前文档版本：0.8.2 · 抬头日期 2026-10-02，内容更新至 2026-10-21（容器格式版本升 2、分段容器落地与多段读口、`ext_type = 3` 对视频流转必选、入库素材第二次重锚，以及**字幕前四项 ABI 空洞补齐 + 公开面冻结声明**：内存缓冲句柄、日志落盘与第六套错误码、能力查询三口、宿主分配器边界）。
+> 本文是 CLV 仓库的入口说明。当前文档版本：0.9.0 · 抬头日期 2026-10-02，内容更新至 2026-10-26（**字幕层落地**：`include/CLV_Subtitle.h` 公开面、`src/subtitle/` 载荷与块语法解析器、字符处理层七接口与渲染器、`docs/字幕规范.md` 规范正文、字幕三轨播放示例与三轨演示件；此前各版的落地项为容器格式版本升 2、分段容器落地与多段读口、`ext_type = 3` 对视频流转必选、入库素材第二次重锚，以及**字幕前四项 ABI 空洞补齐 + 公开面冻结声明**：内存缓冲句柄、日志落盘与第六套错误码、能力查询三口、宿主分配器边界）。
 
 CLV = **C++ Lightweight Video**：自研轻量视频容器 + 自研视频编解码 + 自研字幕格式。
 公开面是 **C ABI**：不透明句柄 + 自由函数 + 错误码枚举。
-已落地能力：文件读写、日志、内存分配、版本查询，**容器读写面**（函数名 / 结构体 / 出参形态属对外 ABI，改动即破坏调用方；未冻结的是 `.clv` 的字节格式与语义；**分段容器已落地** —— 一个逻辑视频切成多个 `.clv`，段身份落 `ext_type = 7` 段描述块、入口在文件头 `file_ext_offset`，一个读方句柄按段清单连续出帧）、**视频编解码**（含帧间运动补偿与半像素插值）与**音频编解码闭环**（libFLAC）。字幕格式尚未开工。
+已落地能力：文件读写、日志、内存分配、版本查询，**容器读写面**（函数名 / 结构体 / 出参形态属对外 ABI，改动即破坏调用方；未冻结的是 `.clv` 的字节格式与语义；**分段容器已落地** —— 一个逻辑视频切成多个 `.clv`，段身份落 `ext_type = 7` 段描述块、入口在文件头 `file_ext_offset`，一个读方句柄按段清单连续出帧）、**视频编解码**（含帧间运动补偿与半像素插值）与**音频编解码闭环**（libFLAC），**字幕面**（载荷外层与全局样式块编解码、块语法解析器、字符处理层与渲染器；渲染器整体由构建开关决定在不在，问得出在能力位）。`.clv` 的字节格式与字幕语法的 v0.2 预留段仍未随发布冻结。
 
 ## 安装
 
-第三方源码在 `third-party/`（spdlog、googletest），先装到 `build/_install`：
+第三方源码在 `third-party/`（spdlog、googletest；另有本地拉取的 SDL3、flac 与字幕文本栈五件），先装到 `build/_install`：
 
 ```bash
 python scripts/install_third_party.py          # 已装则跳过，--force 重装
@@ -26,7 +26,7 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-集成方式二选一：`add_subdirectory()` 引入源码，或直接链 `build/clv.lib` 并把 `include/` 加进头文件搜索路径。公开头共九份，全在 `include/`（核心与容器六份 + 媒体两份 + 节拍一份）。
+集成方式二选一：`add_subdirectory()` 引入源码，或直接链 `build/clv.lib` 并把 `include/` 加进头文件搜索路径。公开头共十份，全在 `include/`（核心与容器六份 + 媒体三份 + 节拍一份；媒体三份 = 视频 / 音频 / 字幕）。
 
 ## 快速开始
 
@@ -72,7 +72,7 @@ Windows 控制台上要正确显示中文，调用方先设码页：`SetConsoleO
 | `CLV_Container.h` | 写方 7 个（`…WriterOpenFile` / `AddStream` / `AddExtBlock` / `WriteFrame` / `WriteFrameChunks` / `Finish` / `Close`）+ 读方 17 个（`…ReaderOpenFile` / `NextFrame` / `StreamCount` / `GetStream` / `Stats` / `HasIndex` / `IndexCount` / `GetHead` / `GetIndexEntry` / `ExtBlockCount` / `GetExtBlock` / `Close`，另有多段读五口 `…ReaderOpenSegments` / `SegmentIndex` / `SegmentTotal` / `SegStats` / `SegExtCheck`）+ `CLV_ContainerStrError` = **25** | 容器读写：**形状属对外 ABI**（改动即破坏调用方），未冻结的是 `.clv` 的字节格式与语义。不透明句柄 + 整帧或调用方给定的分片进出；分段容器已落地（`ext_type = 7` 段描述块 + 段清单连续出帧 + 段级观测口），头注释即契约正文 |
 | `CLV_Video.h` | 无状态 2（`CLV_VideoCodedSize` / `ParseEncMeta`）+ 解码 7（`DecoderOpen` / `Decode` / `NextOutput` / `Flush` / `Reset` / `StreamRejected` / `Close`）+ 编码 4（`EncoderOpen` / `AllocFrame` / `Encode` / `Close`）+ 码流 4（`BitstreamGetBytes` / `BitstreamSliceCount` / `BitstreamGetSlice` / `BitstreamRelease`）+ 帧 5（`FrameAddRef` / `FrameRelease` / `FrameFree` / `FrameGetDesc` / `FrameToRGB24`）+ `StrError` = **23** | 视频编解码面：**编解两侧的有损重建闭环已接**，**无损档已接**（`mode = LOSSLESS` + 码流里 `vop_quant = 0`，系数直载、重建与源逐字节全等）（编码端变换量化 → 系数载体 → 内部重建并自存参考帧；解码端句柄七入口全真）；系数载体有两种写法：定长档与法 1 档（先写结束标志 EOB，再用位数递增的 Exp-Golomb 编码写幅值）；具体用哪一档由视频帧头第 5 到第 7 位声明，本库默认法 1。**运动补偿已接**（帧间按运动矢量取样，半像素双线性平均 + 参考缓冲边缘复制带；B 帧编码侧目前只产 direct + `not_coded`）。码流缓冲归调用方、用完自己 `Release` |
 | `CLV_Audio.h` | 无状态 5（`AudioInspectFrame` / `ParseStreamInfo` / `SplitMetaBlock` / `ClassifyMetaBlock` / `StripChannelMask`）+ 解码 6（`DecoderOpen` / `DecodeFrame` / `AddMetaBlock` / `Reset` / `Stats` / `Close`）+ 编码 6（`EncoderOpen` / `Write` / `NextFrame` / `Flush` / `TakeStreamInfo` / `Close`）+ 缓冲 3（`BufferAddRef` / `BufferRelease` / `BufferGetDesc`）+ 元数据块 3（`BlobAddRef` / `BlobRelease` / `BlobGetBytes`）+ 承载块解读 4（`ParseVorbisComment` / `VorbisCommentEntryAt` / `CLV_AudioVorbisCommentFindKey` / `ParsePicture`）+ `StrError` = **28** | 音频面：编解码闭环已实现（libFLAC 后端接线到帧级：帧头自核 + 流声明对账 + 一包一帧）；结构层（帧头 / 承载块 / 注释块）与句柄面均为实现态 |
-| `CLV_Pace.h` | 建仓与逐帧判定 8（`CLV_PaceOpen` / `Close` / `BeginPass` / `SetDeviceRunning` / `NoteAudioFed` / `ClockSeconds` / `Decide` / `FeedAllowed`）+ `StrError` = **9** | 播放节奏：以音频设备侧的已消费量为主时钟，按这一帧的 pts 判它该等、该出还是该丢（`Decide` 交回等待 / 出画 / 丢帧三档），并给出还能不能继续喂音频；设备侧只经两个回调交进来，本头不依赖任何播放器库，失败码从 96 起独立成段 |
+| `CLV_Pace.h` | 建仓、逐帧判定与记账口 11（`CLV_PaceOpen` / `Close` / `BeginPass` / `SetDeviceRunning` / `NoteAudioFed` / `NoteConsumedMediaTime` / `NoteAudioDropped` / `Stats` / `ClockSeconds` / `Decide` / `FeedAllowed`）+ `StrError` = **12** | 播放节奏：主时钟 = 消费端报告的「已消费媒体时间」（库不外推、不封顶、不阻尼，只保证单调），按这一帧的 pts 判它该等、该出还是该丢（`Decide` 交回等待 / 出画 / 丢帧三档），并给出积压水位、建议重采样倍率与丢 / 重帧提示、还能不能继续喂音频；设备侧只经两个回调交进来（排队字节数、可选的单调墙钟），本头不依赖任何播放器库，失败码从 96 起独立成段 |
 
 ## 使用约定
 
@@ -91,7 +91,7 @@ Windows 控制台上要正确显示中文，调用方先设码页：`SetConsoleO
 | 并发 | 只保证单实例单次调用原子；跨实例、跨线程的并发语义未定义，调用方自行同步 |
 | 句柄 | 由 `CLV_CloseFile` 释放；对 NULL 句柄的任何调用返回 `CLV_FILE_INVALID_HANDLE`，`CLV_CloseFile(NULL)` 是合法 no-op；已关闭的句柄再使用是未定义行为 |
 | 内存缓冲句柄 | `CLV_OpenMemoryFile(buffer, size, mode, &out)` 交出实现态句柄：缓冲区全程归调用方（库不分配、不 `realloc`），`mode` 只受理 `READ` / `WRITE`，容量固定、写档越界整次拒；`Size` 在只读档给容量、只写档给高水位。形状自 `[0.8.2]` 起带 `mode`，是三参版本的破坏性变更 |
-| 错误码编号 | 五面的错误码各自独立枚举：文件与容器从 1 顺排、音频 32 到 63、视频 64 到 95、节拍 96 起，不得跨头比对数值——各头的 1 语义无关；文件面失败在容器口统一收敛为 `CLV_CONTAINER_IO_FAILED`，不回传文件面码值 |
+| 错误码编号 | 七面的错误码各自独立枚举：文件与容器从 1 顺排、音频 32 到 63、视频 64 到 95、节拍 96 到 101、日志 102 到 105、字幕 106 到 117，不得跨头比对数值——各头的 1 语义无关；文件面失败在容器口统一收敛为 `CLV_CONTAINER_IO_FAILED`，不回传文件面码值 |
 | 容器面时间轴 | `WriteFrame` 收该流原始时间轴上的绝对 dts / pts（可为负），写方按首帧平移到 0 落盘、读方不承担平移；`pts_delta` 是「本帧 PTS − 本帧 DTS」，用 zigzag 有符号 varint 承载，允许为负 |
 | 容器面线程 | 句柄不跨线程使用，跨实例并发语义未定义 |
 
@@ -99,9 +99,10 @@ Windows 控制台上要正确显示中文，调用方先设码页：`SetConsoleO
 
 | 开关 | 默认 | 作用 |
 |---|---|---|
-| `CLV_BUILD_SHARED` | OFF | 另建动态件 `clv`（静态件 `clv_static` 恒在）；ON 时三份示例链动态件，跑通即动态路实测 |
+| `CLV_BUILD_SHARED` | OFF | 另建动态件 `clv`（静态件 `clv_static` 恒在）；ON 时四份示例链动态件，跑通即动态路实测 |
 | `CLV_LOGGER_USE_SPDLOG` | OFF | 日志后端选 spdlog；OFF 时用空后端，所有日志被丢弃 |
-| `CLV_BUILD_DEMOS` | OFF | 建 `demo/` 的三个示例，可执行落 `demo_local/bin/`（每次构建先清空再投递），并把示例源码同步一份到 `demo_local/src/`；播放器示例另需 SDL3，找不到时配置期直接失败 |
+| `CLV_BUILD_DEMOS` | OFF | 建 `demo/` 的四个示例，可执行落 `demo_local/bin/`（每次构建先清空再投递），并把示例源码同步一份到 `demo_local/src/`；播放器示例另需 SDL3，找不到时配置期直接失败 |
+| `CLV_BUILD_SUBTITLE_RENDERER` | ON | 字幕渲染器；OFF 时各渲染口返 `CLV_SUBTITLE_UNSUPPORTED`、能力位 bit4 = 0 |
 | `CLV_WARNINGS_AS_ERRORS` | OFF | 自有 target 警告升级为错误 |
 
 源文件编码由构建统一指定（MSVC `/utf-8`，其它 `-finput-charset=UTF-8`）。自有 target 的警告级别是 MSVC `/W4 /permissive-`，第三方不参与。
@@ -111,10 +112,10 @@ Windows 控制台上要正确显示中文，调用方先设码页：`SetConsoleO
 | 项 | 结果 |
 |---|---|
 | clean 重建 | 0 warning |
-| `ctest` | 注册 **390** 例、0 失败；其中 1 例（`VideoQualityRealMedia.…`）在没有真素材环境变量时按设计 `GTEST_SKIP`，不判红。`CLV_LOGGER_USE_SPDLOG` 的 ON 与 OFF 两种配置都跑 |
+| `ctest` | 注册 **431** 例、0 失败；其中 1 例（`VideoQualityRealMedia.…`）在没有真素材环境变量时按设计 `GTEST_SKIP`，不判红。`CLV_LOGGER_USE_SPDLOG` 的 ON 与 OFF 两种配置都跑 |
 | 第三方接入 | `find_package`（用 `build/_install`）与源码 `add_subdirectory` 回退两条路都可用；**libFLAC 是例外**，走自建导入目标，见下一节 |
 | 格式自查 | `python scripts/format_all.py`（C/C++ 走仓库根 `.clang-format`，Python 走 black） |
-| 示例 | `CLV_BUILD_DEMOS=ON` 构建后，在 `demo_local/` 下跑 `./bin/clv_demo_core.exe`、`./bin/clv_demo_container.exe` 与 `./bin/clv_demo_video.exe <一份双流 .clv>`，前两个退出码 0 表示自动判定项全过；第三份是双轨播放器（另需外部 SDL3），判据是退出码 0 且末行 `DEMO_VIDEO_DONE shown=… dropped=… repeated=…` 打出来——该行只在两轨都跑完时打印，`shown` 等于流里的帧数、`dropped` 为 0；人工项见 `demo/README.md` |
+| 示例 | `CLV_BUILD_DEMOS=ON` 构建后，在 `demo_local/` 下跑 `./bin/clv_demo_core.exe`、`./bin/clv_demo_container.exe`、`./bin/clv_demo_video.exe <一份双流 .clv>` 与 `./bin/clv_demo_subtitle.exe [一份带字幕的 .clv]`；前两个退出码 0 表示自动判定项全过；第三份是双轨播放器（另需外部 SDL3），判据是退出码 0 且末行 `DEMO_VIDEO_DONE shown=… dropped=… repeated=…` 打出来；第四份是字幕管线三轨播放（默认读 `assets/fixtures/demo_avs_360p_q32.clv`，视频/音频上叠字幕层），判据是退出码 0 且末行 `DEMO_SUBTITLE_DONE shown=… dropped=0 …`，`shown` 为正。人工项见 `demo/README.md` |
 
 ### libFLAC 怎么找（唯一路，锁定）
 
@@ -151,14 +152,17 @@ set_target_properties(FLAC::FLAC PROPERTIES
 
 | 轨道 | 值 | 出现位置 |
 |---|---|---|
-| 工程版本 | `0.8.2`，字符串 `0.8.2-dev` | `include/CLV_Version.h` 的四个宏（单一来源）、CMake `project(clv VERSION 0.8.2)`、`CLV_VersionString()` 的返回值 |
-| 文档版本 | `0.8.2` | 设计文档与本 README 的抬头声明，不进可执行代码；与工程版本可以同值，但两条轨道的来源与变更时机各自独立 |
+| 工程版本 | `0.9.0`，字符串 `0.9.0-dev` | `include/CLV_Version.h` 的四个宏（单一来源）、CMake `project(clv VERSION 0.9.0)`、`CLV_VersionString()` 的返回值 |
+| 文档版本 | `0.9.0` | 设计文档与本 README 的抬头声明，不进可执行代码；与工程版本可以同值，但两条轨道的来源与变更时机各自独立 |
 | 容器格式版本 | `2` / `0`（`version_major` / `version_minor`） | `.clv` 文件头偏移 8 / 10，读方据此判能否解析 |
+| 视频语法版本 | `v1` | 载荷内部不带版本字段；语义见 `docs/视频语法规范.md`。本轮版本抬号不动它 |
+| 音频载荷 | FLAC 帧本体 | 音频面只解释与切分，不重编码；本轮不动 |
+| 字幕格式版本 | `clv_s1 0.1-r13` | 字幕规范的**文档版本**随本轮抬到 `0.9.0`，**格式号不动**；语义见 `docs/字幕规范.md` |
 
 **格式变更须伴随版本升号**：改动落到线上字节（布局、字段宽度、偏移口径、取值域）时，**必须同轮**抬 `version_major`（只澄清语义、补齐定义而不动布局才抬 `version_minor`），并随之重锚入库素材与规范正文。反面就是 2026-10-11 到 2026-10-12 之间那段：布局已变而 `version_major` 仍写 1，两份文件字节上看不出归属。
 三条轨道之间**没有换算关系**：抬工程版本既不触发容器格式版本、也不触发入库素材重跑（重跑判据只看容器格式版本与结构口径）。
 
-**冻结声明**：公开 C ABI 自 `0.8.2` 起冻结到 1.0 —— **冻结面** = 公开函数签名 + 结构体字段形状 + 六套错误枚举的值序与段位；改任一项都算破坏性变更，新错误码只允许落在本面段尾的下一格，留白号位不复用。**未冻结** = `.clv` 的字节语义（容器格式版本仍 `2/0`，规范正文未随发布冻结）、平台支持范围、性能承诺。逐函数与逐结构的承诺见 `API.md`。
+**冻结声明**：既有公开面自 `0.8.2` 起冻结到 1.0；**字幕面自 `0.9.0` 追加，随 1.0 一并冻结** —— **冻结面** = 公开函数签名 + 结构体字段形状 + **七套**错误枚举（文件 / 容器 / 音频 / 视频 / 节拍 / 日志 / 字幕）的值序与段位，字幕段 106–117、118+ 留白不复用；改任一项都算破坏性变更，新错误码只允许落在本面段尾的下一格，留白号位不复用。**未冻结** = `.clv` 的字节语义（容器格式版本仍 `2/0`，规范正文未随发布冻结）、平台支持范围、性能承诺。逐函数与逐结构的承诺见 `API.md`。
 
 **平台支持范围**：Windows x64 是**已验证**平台（本仓全部验收读数都取自它）。Linux 与 macOS 的后端按 POSIX 语义实现，但**未经非 Windows 编译器验证过**，不作可用承诺；iOS 只有 `platform/platform.h` 里的检测分支，选源处 `#error`，没有实现件。这一句与 `ARCHITECTURE.md` 的未落地表互指。
 
@@ -169,7 +173,7 @@ set_target_properties(FLAC::FLAC PROPERTIES
 - 非商业使用者（个人、教育机构、非营利组织及其他不以营利为目的的主体）拿到与 Apache-2.0 同范围的权利，但**不含**销售、再许可、商业集成、商业部署等商业权利；
 - 商业用途需事先获得作者书面授权，联系方式见 `LICENSE` 第二条；免责声明见第三条；
 - 许可只以根 `LICENSE` 为准，单个源码文件不带许可头；
-- `third-party/` 下各库保留自己的许可证（spdlog 为 MIT、googletest 为 BSD-3-Clause），本许可不覆盖它们。
+- `third-party/` 下各库保留自己的许可证（spdlog 为 MIT、googletest 为 BSD-3-Clause，文本栈五件按各自 LICENSE / COPYING），本许可不覆盖它们。
 
 ## 文档索引
 
@@ -178,12 +182,13 @@ set_target_properties(FLAC::FLAC PROPERTIES
 | `README.md` | 本文件：安装、快速开始、公开接口、使用约定、构建与验收 |
 | `API.md` | 公开 C ABI 逐函数说明：句柄与错误码约定、入参出参语义、最小示例、验收清单 |
 | `docs/容器规范.md` | `.clv` 字节格式规范：布局、字段值域、时间模型、分片规则与容错口径 |
+| `docs/视频语法规范.md` | 视频载荷语法规范：帧与片、宏块头、块数据与系数载体、量化与重建、帧池与上限 |
+| `docs/音频帧规范.md` | 音频帧规范：FLAC 帧头逐字段、块大小与流式子集判定、元数据承载、错误码与上限 |
+| `docs/字幕规范.md` | 字幕规范：语法与属性、时间与布局、滚动、转义、包外层与全局样式块、错误码、渲染管线与测试要点 |
 | `ARCHITECTURE.md` | 工程结构、分层与数据流、构建系统组织方式、当前未落地项与已落地范围 |
 | `CHANGE.log` | 版本演进记录与版本兼容声明 |
-| `include/CLV_*.h` | 九个公开头的注释即接口契约正文：函数名 / 参数结构体 / 出参形态属对外 ABI，改动即破坏调用方；未冻结的是各面的字节格式与码流语义 |
+| `include/CLV_*.h` | 十个公开头的注释即接口契约正文：函数名 / 参数结构体 / 出参形态属对外 ABI，改动即破坏调用方；未冻结的是各面的字节格式与码流语义 |
 | `assets/README.md` | 入库测试素材的内容表、确定性要求与冻结值 |
 | `skills/` | 项目级 Skill（与平台无关的唯一事实来源）：收口复扫 / 门禁跑批 / 交付记录 / Skill 生成器；各平台扫描目录里只放逐件链接，克隆后由 `scripts/setup_skills.py` 重建 |
 | `demo/README.md` | 示例库：预置内容、可复制示例、运行与验收步骤 |
 | `人机协同工作流程.md`、`AI项目文档通用生成模板.md`、`AI分层架构通用规范.md`、`AI技术债审查规范.md` | **四份项目外自由文档**：随仓库一起入库，但不属本项目，也不受本项目的注释纪律与版本口径管辖；内容是各自通用的协作流程、文档模板与审查规范，版本演进由该件自己头部声明 |
-
-

@@ -73,13 +73,13 @@ TEST(TransformLossless, ForwardThenInverseHadamardIsExactOnIntegerBlocks)
 	{
 		int32_t t[kBlockCoefs];
 		Hadamard8(x.data(), t);
-		double y[kBlockCoefs];
-		InverseHadamard8(t, y);
+		int32_t b[kBlockCoefs];
+		InverseHadamard8(t, b);
 		size_t bad = 0u;
 		for (int i = 0; i < kBlockCoefs; ++i)
 		{
 			// 反变换给出的整数还原必须逐点等于原值，容差 0
-			if (RoundResidual(y[i]) != x[i]) ++bad;
+			if (RoundResidual(b[i]) != x[i]) ++bad;
 		}
 		EXPECT_EQ(bad, 0u) << "块 0 点 = " << x[0];
 		checked += kBlockCoefs;

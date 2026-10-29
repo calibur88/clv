@@ -12,6 +12,11 @@
 # 代码格式化：Python 侧脚本一律 black 默认参数（行宽 88），格式化器只装在本项目 .venv/ 里。
 black==26.5.1
 
+# Markdown 格式化闸（scripts/format_all.py 的 Markdown 半）：规则依据是仓库根 .pymarkdown，入口两路
+# PATH → .venv/Scripts/pymarkdown.exe。两条实测限制写在 .pymarkdown 与 format_all.py 的模块头里
+# （fix 会把整件写成 CRLF，本件跑完自己归一回 LF；表判定要开 markdown-tables 扩展才有牙）。
+pymarkdownlnt==0.9.41
+
 # scripts/gen_video_quant_fixtures.py 与 scripts/gen_synth_sequence.py 都用 numpy：
 # 前者输入块按 8×8 矩阵做正变换（Q.H8 @ x @ Q.H8.T）、误差界取 np.max(np.abs(T - F2))；
 # 后者整套图样按数组语义生成（np.arange / 广播 / 逐段 astype(np.uint8)），逐像素的图样定义就是这些表达式。

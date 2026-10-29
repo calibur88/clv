@@ -64,13 +64,17 @@ namespace clv
 		constexpr bool IsLosslessQuant(uint8_t q) noexcept { return q == kQuantLossless; }
 
 		void Hadamard8(const int32_t* x, int32_t* t);
-		void InverseHadamard8(const int32_t* f2, double* y);
 
-		/* 反变换输出（double）落到整数残差的唯一舍入式：
-		 *   f = (Y >= 0) ? floor(Y + 0.5) : ceil(Y - 0.5)     四舍五入、半程离零
-		 * Y 恒是「整数 ÷ 64」，64 = 2^6，双精度下精确可表示，故取整不引入二次误差。
-		 * 编解两侧逐字同式 —— 任一侧换式（截断、就近偶、查表改写），两侧就不再逐字节全等。 */
-		int32_t RoundResidual(double y) noexcept;
+		/* 反变换：b = H f2 Hᵀ，整数、不归一（与向量化支的 Fwht8 同式同尺度）。
+		 * 出口不经浮点：÷64 的舍入在 RoundResidual 那一步做，两步合起来与向量化支的
+		 * Fwht8 + RoundStoreRow8 逐位同值。 */
+		void InverseHadamard8(const int32_t* f2, int32_t* b);
+
+		/* 反变换输出落到整数残差的唯一舍入式：f = round(b / 64)，四舍五入、半程离零。
+		 * 整数式：b ≥ 0 先加 32 再右移 6；b < 0 取相反数加 32 右移 6 再取负（不右移负数，
+		 * 避免实现定义的算术移位）。与向量化支 RoundStoreRow8 的偏置与移位逐位同式 ——
+		 * 任一侧换式（截断、就近偶、查表改写），两侧就不再逐字节全等。 */
+		int32_t RoundResidual(int32_t b) noexcept;
 
 		/* q 必须在 [1, QuantCeiling(quant_precision)]；越界时按原样返回不夹（调用方先用有效量化步长）。 */
 		int32_t QuantizeValue(int32_t coef, uint8_t q);
@@ -81,9 +85,6 @@ namespace clv
 
 		/* 系数域误差界判定：2 * max|t − f2| ≤ 3q − δ。返回是否守住，并带出实测最大误差。 */
 		bool CoefficientBoundOk(const int32_t* t, const int32_t* f2, uint8_t q, int32_t* max_err);
-
-		/* 像素域（反变换后）误差界判定：max|err| ≤ 1.5q − δ/2，按浮点式算。 */
-		bool PixelBoundOk(const double* diff, uint8_t q, double* max_err);
 
 	}	 // namespace video
 }	 // namespace clv

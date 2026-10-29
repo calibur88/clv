@@ -18,7 +18,11 @@ namespace clv
 
 	/* bit0 恒 1 = 内存缓冲句柄是实现态；bit2 恒 0 = 宿主注入分配器不做，且那位永不赋予新义。
 	 * 两格都写成常量而不是探测结果：这一问的答案不该依赖任何运行时状态。 */
-	constexpr uint32_t kCapabilities = CLV_CAP_MEMORY_FILE | kLogStorageBit;
+	constexpr uint32_t kCapabilities = CLV_CAP_MEMORY_FILE | kLogStorageBit | CLV_CAP_SUBTITLE_PARSER
+#if CLV_SUBTITLE_RENDERER_ENABLED
+									   | CLV_CAP_SUBTITLE_RENDERER
+#endif
+		;
 
 }	 // namespace clv
 

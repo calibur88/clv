@@ -128,7 +128,7 @@ namespace clv
 
 		/* 一块的重建，编解两侧逐字同式的唯一实现：
 		 *   反量化(DequantizeBlock) → 夹 ±T_max（帧内 ±8192 / 帧间 ±16320，按 `intra` 取档）
-		 *   → 反变换(InverseHadamard8, double) → 舍入(RoundResidual) → 夹 [−2^bpp, 2^bpp − 1]（[−256, 255]）
+		 *   → 反变换(InverseHadamard8, int32) → 舍入(RoundResidual, 整数) → 夹 [−2^bpp, 2^bpp − 1]（[−256, 255]）
 		 *   → 加预测块 pred → 夹 [0, 2^bpp − 1]（[0, 255]）。
 		 * `pred` 帧内恒为 128、帧间是运动补偿预测块（零矢量即取同位块）。v1 只有 bpp = 8。
 		 * `intra` 只影响第一级夹取取哪一档，不改其余三级的域。 */

@@ -3,7 +3,7 @@
 """随机交叉语料档生成器：Python 独立模型 ↔ C 实现 的双刃对照，三档产物 + 三道前置。
 
 产物只落 `--out` 给的那个不入库目录，本件不写仓库里任何入库面：`--out` 解析后落在仓内时，
-只有落在 `temp/`（本仓 .gitignore 整目录不入库）才放行，指进仓库根或任何入库面直接拒。
+只有落在仓内那棵被 `.gitignore` 整目录排除的工作树下才放行，指进仓库根或任何入库面直接拒。
 临时驱动件（C 源码 + 编译批 + 语料 + 结果日志）全部由本件现场生成到 `--out`，
 只**链接已建好的静态库**，不碰构建系统（不跑 cmake / ninja / ctest，不改构建目录）。
 
@@ -2555,7 +2555,7 @@ def main() -> int:
 
 
 def forbid_out_inside_repo(out: pathlib.Path, repo: str) -> None:
-    """产物目录只准落不入库面：落在仓内时只放行 temp/ 那一区（.gitignore 整目录不入库）。
+    """产物目录只准落不入库面：落在仓内时只放行 .gitignore 整目录排除的那棵工作树。
 
     判点用解析后的绝对路径比，不接受 .. 绕回仓内的写法；指进仓库根或任何入库面直接用法错误退出，
     免得语料、驱动件源码与日志被当成资产收进版本库。
@@ -2570,7 +2570,7 @@ def forbid_out_inside_repo(out: pathlib.Path, repo: str) -> None:
     if parts and parts[0] == "temp":
         return
     raise SystemExit(
-        "产物目录 %s 落在仓库入库面里（仓库根 %s）：只准落仓外临时目录或仓内的 temp/ 下"
+        "产物目录 %s 落在仓库入库面里（仓库根 %s）：只准落仓外临时目录，或仓内被 .gitignore 整目录排除的工作树"
         % (resolved, root)
     )
 

@@ -2,7 +2,7 @@
  *
  * 用法：clv_demo_video.exe <文件.clv> [--loop] [--topmost] [--probe]
  *   --probe 另打两类读数：趟首每段（重开读方 / 复位 / 预灌 / 空跑呈现 / 放开设备）的耗时与那一刻
- *   音频流的排队·已消费·锚龄，以及每帧的同样四个量。同步偏差要归因时就靠它，不用猜。
+ *   音频流的排队·已消费·折算钟位，以及每帧的同样几个量。同步偏差要归因时就靠它，不用猜。
  *
  * 这个示例测的是「编得出、封得进、解得回、**播得起来且两轨对得上**」这条链的最后一环，
  * 所以它只吃公开 C ABI（`CLV_Container.h` / `CLV_Video.h` / `CLV_Audio.h` / `CLV_Pace.h`）+ SDL3，
@@ -13,9 +13,10 @@
  * 正常出帧、按节器件丢弃、提前退出、冲刷收尾四条路一条都不留。走的是 `CLV_VideoFrameFree` 那扇门 ——
  * 纯 C 调用方没有析构可兜底，而这一扇带回报码，归还没落到实处时示例自己能报出来。
  *
- * 时钟与阈值口径**不在这个文件里**：它们在库侧的 `CLV_Pace.h`（主时钟 = 设备已消费量、两次取数之间线性外推、
- * period 与它的两个倍数、背压、两处起钟修正）。本文件只做三件事 —— 把 SDL 的设备侧量交出去（排队字节数）、
- * 按节器件给的动作执行（等 / 出画 / 丢）、把设备放开或按住告诉它。
+ * 时钟与阈值口径**不在这个文件里**：它们在库侧的 `CLV_Pace.h`（主时钟 = 消费端报告的已消费媒体时间、
+ * period 与它的倍数、丢帧阈含实测报告步长、背压与积压上界、起播零点修正）。本文件只做四件事 ——
+ * 把 SDL 的设备侧量交出去（排队字节数）、把设备真取走的量当媒体时间**报告**回节器件、
+ * 按节器件给的动作执行（等 / 出画 / 丢）、把建议的重采样倍率与丢 / 重帧提示落到执行侧。
  * 于是这套口径能在没有声卡、没有窗口的用例里逐条测，示例和用例读的是同一份数。
  *
  * 视频钟 = 已呈现帧序号 ÷ 帧率，帧率取视频流描述符的 `timebase_den / timebase_num`，取不到按 30。
@@ -49,9 +50,11 @@ struct Player
 	unsigned tb_num, tb_den;	  /* 视频流时间基：fps = tb_den / tb_num，节器件按有理数吃 */
 	unsigned long long period_ns; /* 只用于等待期间的重复出画节奏；阈值本身全在节器件里 */
 	unsigned rate, chans, bpf;	  /* bpf = 一帧音频样本的字节数 = channels × 2 */
-	unsigned long long fed_bytes; /* 累计喂进音频流的字节，只为读数展示；口径账在节器件 */
-	unsigned long long t0_ns, pass_t0_ns;
-	CLV_Pace* pace; /* 主时钟与逐帧判定都从它问 */
+	unsigned long long fed_bytes; /* 累计喂进音频流的字节；与仍排队的读数一起折算成报给节器件的主钟供数 */
+	unsigned long long t0_ns, pass_t0_ns, v_dts;
+	unsigned v_pkts; /* 读到的视频包数：供给腿按它对已出画帧的领先量收手 */
+	int eof_reached; /* 包区已尽，不再等钟 */
+	CLV_Pace* pace;	 /* 主时钟与逐帧判定都从它问 */
 
 	unsigned long long dec_ns, pres_ns, feed_ns;
 
@@ -59,13 +62,17 @@ struct Player
 	unsigned long long backlog_ns;		 // 背压闸里堵掉的墙钟，算进「其余」就等于没拆出来
 	unsigned backlog_blocks;			 // 真堵过（进等待循环）的次数
 	unsigned shown, dropped, repeated, late, in_band, a_decoded, a_bytes;
+	unsigned hint_dropped, hint_duped; /* 执行侧的丢 / 重帧，与节器件判的 DROP 分开计 */
+	uint32_t ratio_q16;				   /* 已落到音频流上的倍率（Q16），挪开一挡才重设 */
+	int clock_warned;				   /* 主钟报告被拒只说一次 */
 	int quit, paused, topmost;
 	int probe; /* --probe：把趟首每一段与每帧的钟位拆开打点，偏差出在哪一段直接读出来 */
 };
 
 /* 趟首探针：一条打印 = 一段的累计耗时 + 本段耗时 + 那一刻音频流的三个量。
-   「已消费」= 已喂 − 仍排队，是设备侧真取走的字节。主时钟的走法（外推、暂停不推进、锚点复位）
-   全在库侧节器件里，这里不重读钟 —— 探针自己读一次钟就会把锚点挪到探针的读数时刻上。 */
+   「已消费」= 已喂 − 仍排队，是设备侧真取走的字节，也正是交给节器件当主钟的那一笔。主时钟的口径
+   （只跟报告走、暂停期间不推进、从起播零点起算）全在库侧节器件里，这里不重读钟 —— 探针自己读一次钟
+   就会把起播零点挪到探针的读数时刻上。 */
 static void probe_step(struct Player* p, const char* label, unsigned long long t0, unsigned long long* plast)
 {
 	const unsigned long long now = (unsigned long long) SDL_GetTicksNS();
@@ -106,6 +113,36 @@ static uint8_t PaceQueued(void* user, uint64_t* out_queued)
 	return 1;
 }
 
+/* 主钟的供数口：设备取走的量（已喂 − 仍排队）换算成媒体时间。除法在前、余数补后，免得累计字节乘 1e9 撑破 64 位。
+ * 排队量问不出就不报：一次问不出不是一个凭空的零。 */
+static void pace_report_clock(struct Player* p)
+{
+	uint64_t q = 0;
+	const unsigned long long bps = (unsigned long long) p->rate * p->bpf;
+	if (! PaceQueued(p, &q) || bps == 0ull) return;
+	const unsigned long long consumed = p->fed_bytes > q ? p->fed_bytes - q : 0ull;
+	const unsigned long long ticks = (consumed / bps) * 1000000000ull + (consumed % bps) * 1000000000ull / bps;
+	const CLV_PaceError e = CLV_PaceNoteConsumedMediaTime(p->pace, ticks);
+	if (e != CLV_PACE_OK && ! p->clock_warned)
+	{
+		p->clock_warned = 1;
+		fprintf(stderr, "  [警告] 主钟报告被拒：%s —— 报告值必须单调不减\n", CLV_PaceStrError(e));
+	}
+}
+
+/* 倍率交给 SDL 的重采样比例（不动 PCM），丢 / 重帧交给视频腿：节器件只建议，不执行。 */
+static void pace_apply_rate(struct Player* p, const CLV_PaceDecisionC* d)
+{
+	const uint32_t want = d->resample_ratio_q16;
+	const uint32_t gap = want > p->ratio_q16 ? want - p->ratio_q16 : p->ratio_q16 - want;
+	if (want != 0u && (p->ratio_q16 == 0u || gap >= 256u)) /* 小于 0.4 % 的抖动不值得重设一次流 */
+	{
+		p->ratio_q16 = want;
+		if (! SDL_SetAudioStreamFrequencyRatio(p->ast, (float) want / 65536.0f))
+			fprintf(stderr, "  [警告] 设重采样倍率：%s\n", SDL_GetError());
+	}
+}
+
 /* 事件泵：退出与暂停。返回 1 = 该退出了。 */
 static int pump_events(struct Player* p)
 {
@@ -119,7 +156,8 @@ static int pump_events(struct Player* p)
 			p->paused = ! p->paused;
 			if (p->paused) SDL_PauseAudioStreamDevice(p->ast);
 			else SDL_ResumeAudioStreamDevice(p->ast);
-			/* 设备的放开与按住要同步告诉节器件，否则暂停那段的墙钟会被外推进主时钟 */
+			/* 设备的放开与按住要同步告诉节器件：主钟只跟报告走，这个开关管的是起播零点与死队列计时。
+			   按住期间没有报告是预期内的，不该被报成死队列。 */
 			CLV_PaceSetDeviceRunning(p->pace, p->paused ? 0u : 1u);
 			printf("[暂停] %s\n", p->paused ? "是" : "否");
 			fflush(stdout);
@@ -134,6 +172,43 @@ static void paint(struct Player* p)
 	SDL_RenderPresent(p->ren);
 }
 
+static int feed_audio(struct Player* p, const uint8_t* payload, size_t size);
+
+/* 供给腿往前走一格：音频进流、视频进解码器，不等出点。出画腿等的时候必须还能供数据 ——
+ * 主钟只跟报告走，供给一停报告就停，等下去就是死锁。返回 0 = 读走一包，1 = 包区已尽，-1 = 该退。 */
+static int pump_ahead(struct Player* p)
+{
+	CLV_FrameC f;
+	uint8_t have = 0;
+	const unsigned long long t = (unsigned long long) SDL_GetTicksNS();
+	if (CLV_ContainerReaderNextFrame(p->rd, &f, &have) != CLV_CONTAINER_OK)
+	{
+		fprintf(stderr, "读包失败，停在这里\n");
+		return -1;
+	}
+	p->read_ns += (unsigned long long) SDL_GetTicksNS() - t;
+	if (! have)
+	{
+		p->eof_reached = 1;
+		return 1;
+	}
+	if (f.stream_id == p->aid) return feed_audio(p, f.payload, f.payload_size) == 0 ? 0 : -1;
+	if (f.stream_id != p->vid) return 0;
+	p->v_pkts++;
+	p->v_dts += f.dts_delta;
+	CLV_VideoFrameInfoC vi;
+	SDL_zero(vi);
+	const CLV_VideoError ve =
+		CLV_VideoDecoderDecode(p->vd, f.payload, f.payload_size, f.fragments_expected ? f.fragments_expected : 1,
+							   (int64_t) p->v_dts, (int64_t) (p->v_dts + (uint64_t) f.pts_delta), &vi);
+	if (ve != CLV_VIDEO_OK)
+	{
+		fprintf(stderr, "视频解码失败（dts=%llu）：%s\n", p->v_dts, CLV_VideoStrError(ve));
+		return -1;
+	}
+	return 0;
+}
+
 /* 等到这一帧的出点：动作（等 / 出画 / 丢）由库侧节器件判，本函数只负责执行「等」。
    等待期间每周期重复呈现当前帧（窗口不能晾着），计 repeat。返回 1 = 调用方该退了。 */
 static int pace_to(struct Player* p, double video_pts_s, CLV_PaceDecisionC* out)
@@ -143,6 +218,7 @@ static int pace_to(struct Player* p, double video_pts_s, CLV_PaceDecisionC* out)
 	for (;;)
 	{
 		if (pump_events(p)) return 1;
+		pace_report_clock(p);
 		const CLV_PaceError pe = CLV_PaceDecide(p->pace, video_pts_s, out);
 		if (pe != CLV_PACE_OK && pe != CLV_PACE_CLOCK_SKEW)
 		{
@@ -150,11 +226,13 @@ static int pace_to(struct Player* p, double video_pts_s, CLV_PaceDecisionC* out)
 			return 0;
 		}
 		if (out->action != CLV_PACE_ACT_WAIT) return 0;
+		if (p->eof_reached) return 0; /* 包区已尽，钟不再前进：尾帧按出点直接出 */
 		if (p->paused)
 		{
 			SDL_Delay(5);
 			continue;
 		}
+		if (p->v_pkts < p->shown + p->dropped + 3u && pump_ahead(p) < 0) return 1;
 		/* 等待分两类，执行方式必须不同（一律按周期重绘时，视频钟相对墙钟中位落后 23.9 ms，
 		 *   滚出一整个周期后开始连丢）：
 		 *   音频闸（视频超前于音频钟）=> 画面停在当前帧上，按周期重绘一次，计 repeat；
@@ -221,7 +299,8 @@ static int feed_audio(struct Player* p, const uint8_t* payload, size_t size)
 			if (! SDL_PutAudioStreamData(p->ast, bd.data, (int) bd.size))
 				fprintf(stderr, "灌音频失败：%s\n", SDL_GetError());
 			p->fed_bytes += bd.size;
-			CLV_PaceNoteAudioFed(p->pace, (uint64_t) bd.size); /* 口径账在节器件：它拿这个数与设备排队相减 */
+			CLV_PaceNoteAudioFed(p->pace, (uint64_t) bd.size); /* 只进积压账，主钟不看它 */
+			pace_report_clock(p);
 			p->a_bytes += (unsigned) bd.size;
 			p->a_decoded++;
 		}
@@ -241,8 +320,9 @@ static void drain_backlog(struct Player* p)
 	p->backlog_blocks++;
 	while (! p->quit && CLV_PaceFeedAllowed(p->pace, &allowed) == CLV_PACE_OK && ! allowed)
 	{
-		/* 还堆着就等：这个量在库侧（缺省 1000 ms 当量，取在实测的排队自然峰值之上），
-		   示例不再自己写死一个数。阈值一旦低于素材的自然峰值，这一等就把视频腿一起按住。 */
+		/* 还堆着就等：阈值在库侧（缺省 1000 ms 当量，取在实测的排队自然峰值之上）。
+		   等的这段设备仍在取数，不报就把主钟停在堵闸之前。 */
+		pace_report_clock(p);
 		SDL_Delay(2);
 		if (pump_events(p)) return;
 	}
@@ -291,6 +371,14 @@ static int start_pass(struct Player* p, const char* path)
 	 分子一旦带着上一趟的量，「睡 / 读包 / 其余」三列直接读成假数 */
 	p->backlog_blocks = 0;
 	p->fed_bytes = 0;
+	p->v_dts = 0ull;
+	p->v_pkts = 0u;
+	p->eof_reached = 0;
+	p->hint_dropped = p->hint_duped = 0;
+	p->clock_warned = 0;
+	p->ratio_q16 = 0u; /* 上一趟的倍率不带进这一趟 */
+	if (! SDL_SetAudioStreamFrequencyRatio(p->ast, 1.0f))
+		fprintf(stderr, "  [警告] 复位重采样倍率：%s\n", SDL_GetError());
 	if (CLV_PaceBeginPass(p->pace) != CLV_PACE_OK)
 	{
 		fprintf(stderr, "节器件起趟失败\n");
@@ -574,7 +662,6 @@ int main(int argc, char** argv)
 		printf("\n=== 第 %d 趟 ===\n", pass);
 		if (start_pass(&p, path) != 0) break;
 
-		unsigned long long v_dts = 0;
 		int done = 0;
 		while (! done && ! p.quit)
 		{
@@ -590,6 +677,7 @@ int main(int argc, char** argv)
 			}
 			if (! have)
 			{
+				p.eof_reached = 1;
 				for (;;)
 				{
 					CLV_VideoFrame* fr = NULL;
@@ -621,17 +709,18 @@ int main(int argc, char** argv)
 				continue;
 			}
 			if (f.stream_id != p.vid) continue;
+			p.v_pkts++;
 
-			v_dts += f.dts_delta; /* 读方给的是增量，解码器要绝对刻度 */
+			p.v_dts += f.dts_delta; /* 读方给的是增量，解码器要绝对刻度 */
 			const unsigned long long t = (unsigned long long) SDL_GetTicksNS();
 			CLV_VideoFrameInfoC vi;
 			SDL_zero(vi);
 			const CLV_VideoError ve =
 				CLV_VideoDecoderDecode(p.vd, f.payload, f.payload_size, f.fragments_expected ? f.fragments_expected : 1,
-									   (int64_t) v_dts, (int64_t) (v_dts + (uint64_t) f.pts_delta), &vi);
+									   (int64_t) p.v_dts, (int64_t) (p.v_dts + (uint64_t) f.pts_delta), &vi);
 			if (ve != CLV_VIDEO_OK)
 			{
-				fprintf(stderr, "视频解码失败（dts=%llu）：%s\n", v_dts, CLV_VideoStrError(ve));
+				fprintf(stderr, "视频解码失败（dts=%llu）：%s\n", p.v_dts, CLV_VideoStrError(ve));
 				p.quit = 1;
 				break;
 			}
@@ -655,6 +744,7 @@ int main(int argc, char** argv)
 					p.quit = 1;
 					break;
 				}
+				pace_apply_rate(&p, &dec); /* 建议倍率先落到音频流，再谈这一帧画不画 */
 				if (dec.action == CLV_PACE_ACT_DROP)
 				{
 					printf("f=%4u 丢 vpts=%8.1fms aclock=%8.1fms dev=%+7.1fms 墙龄 %8.1f ms 累计丢=%u\n", p.shown,
@@ -668,11 +758,25 @@ int main(int argc, char** argv)
 					fr = NULL;
 					continue;
 				}
+				/* 提示级的丢与节器件判的 DROP 分开计：一支是匹配器削格，一支是迟到过期 */
+				if (dec.drop_dup_hint == 1u)
+				{
+					p.hint_dropped++;
+					(void) CLV_VideoFrameFree(fr);
+					fr = NULL;
+					p.shown++;
+					continue;
+				}
 				if (dec.in_band) p.in_band++;
 				else if (dec.late) p.late++;
 				const unsigned long long tp = (unsigned long long) SDL_GetTicksNS();
 				present(&p, fr);
 				p.pres_ns += (unsigned long long) SDL_GetTicksNS() - tp;
+				if (dec.drop_dup_hint == 2u)
+				{
+					paint(&p); /* 提示级的重帧：同一帧多占一拍 */
+					p.hint_duped++;
+				}
 				printf("f=%4u vpts=%8.1fms aclock=%8.1fms dev=%+7.1fms asample=%llu dec=%.2fms pres=%.2fms "
 					   "drop=%u repeat=%u\n",
 					   p.shown, vc * 1000.0, dec.clock_seconds * 1000.0, dec.dev_seconds * 1000.0,
@@ -703,6 +807,17 @@ int main(int argc, char** argv)
 			   p.dropped, p.repeated, p.a_decoded, p.a_bytes, wall, (double) p.shown / (wall > 0 ? wall : 1.0));
 		printf("对齐带 ±%.1f ms 内 %u 帧 / 带外迟到 %u 帧 / 丢 %u 帧\n", (double) p.period_ns / 2e6, p.in_band, p.late,
 			   p.dropped);
+		printf("速率匹配：建议倍率末值 %.4f（Q16 %u）  提示级丢 %u 帧 / 重帧 %u 次\n", (double) p.ratio_q16 / 65536.0,
+			   p.ratio_q16, p.hint_dropped, p.hint_duped);
+		{
+			uint32_t dead = 0u, regress = 0u, jumps = 0u;
+			uint64_t dropb = 0ull;
+			if (CLV_PaceStats(p.pace, &dead, &regress, &jumps, &dropb) == CLV_PACE_OK)
+			{
+				printf("旁路诊断：死队列报警 %u 次  回退拒收 %u 次  设备跳变边沿 %u 次  自报减账 %llu B\n", dead,
+					   regress, jumps, (unsigned long long) dropb);
+			}
+		}
 		printf("每帧均值：dec %.2f ms  present %.2f ms  两腿合计 %.2f ms（音频 feed %.2f ms/块）\n",
 			   (double) p.dec_ns / 1e6 / den, (double) p.pres_ns / 1e6 / den,
 			   ((double) p.dec_ns + (double) p.pres_ns) / 1e6 / den,

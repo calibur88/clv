@@ -7,8 +7,8 @@
 范围：`--dir` 指定的目录，默认七个顶层目录：src、include、tests、demo、platform、backends、scripts，
 只吃 .c/.cpp/.h/.hpp。
 
-third-party/ 与 archive/ 不在默认目录里，所以默认扫不到它们 —— 本工具没有排除清单，
-要扫别的目录就把它写进 `--dir`。不把它们放进默认集的理由：前者是上游件、不受本仓纪律约束，
+third-party/ 与未随仓库发行的过程账目录不在默认集里，所以默认扫不到 —— 本工具没有排除清单，
+要扫别的目录就把它写进 `--dir`。不放进默认集的理由：上游件不受本仓纪律约束，
 后者不随 git 发行。
 
 输出默认落 build/audit_comments.txt（build/ 已被 .gitignore 排除），每行：

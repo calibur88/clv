@@ -43,7 +43,7 @@ SCRIPT_DIR = ROOT / "scripts"
 OUT = ROOT / "tests/win32/video/video_payload_fixtures_p.h"
 QUANT_FIXTURES = ROOT / "tests/win32/video/video_quant_fixtures_p.h"
 
-# 档表与具名常数的权威件：这里只读文本取数，不调用库、不跑库。
+# 档表与具名常数的来源件：这里只读它们的文本取数，不调用库、不跑库。
 BLOCK_H = ROOT / "src/video/block.h"
 BLOCK_CPP = ROOT / "src/video/block.cpp"
 QUANT_H = ROOT / "src/video/quant.h"

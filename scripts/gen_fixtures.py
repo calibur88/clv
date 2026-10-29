@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """容器层测试素材生成器。
 
-写出三份**确定性**的 .clv，默认落 assets/fixtures/，端到端测试与人工核对读这三份字节流。
+写出四份**确定性**的 .clv，默认落 assets/fixtures/，端到端测试与人工核对读这四份字节流。
 
 确定性是硬要求：字节流只能是输入的纯函数，不得含时间戳、路径、随机数或版本号以外的环境量。
 CLV 版本号变更（文件头 version_major / version_minor）会改变产出字节：变更后必须重跑本脚本，
@@ -38,7 +38,7 @@ STREAM_SUBTITLE = 2
 # 载荷 8 字节，字段布局照 src/video/headers.cpp 的 ParseEncMeta：
 #   [0] max_b_frames  [1] quant_precision  [2] ext_tools  [3] reserved
 #   [4..5] width（u16 小端）  [6..7] height（u16 小端）
-# 这三份素材的视频载荷是合成图案、没有真实画面对应，也没有本用例自己在用的显示尺寸可沿，
+# 这四份素材的视频载荷是合成图案、没有真实画面对应，也没有本用例自己在用的显示尺寸可沿，
 # 故 width/height 取一个合法非零值（352x288）：本组素材只验容器面，尺寸非零即成立。
 EXT_TYPE_VIDEO_PARAMS = 3
 VIDEO_PARAMS_LEN = 8
@@ -89,7 +89,7 @@ def file_head(
     body += struct.pack("<I", 0)  # 40 header_crc32 占位
     # 偏移 44 起不是 20 字节的保留位：按容器规范的文件头一节，44..51 是 file_ext_offset
     # （文件级扩展块链首块偏移，0 = 无，只在分段那一族旗标为 1 时要求非 0），52..63 才是本版写 0 的
-    # 12 字节 reserved。本件三份素材都不分段，两段都留零 ⇒ 字节流与留痕前逐字节相同，只是登记口径对齐。
+    # 12 字节 reserved。本件四份素材都不分段，两段都留零 ⇒ 字节流与留痕前逐字节相同，只是登记口径对齐。
     body += b"\x00" * 8  # 44..51 file_ext_offset = 0（不分段）
     body += b"\x00" * 12  # 52..63 reserved
     assert len(body) == 64, len(body)
@@ -302,7 +302,7 @@ def assemble(
     return bytes(out)
 
 
-# ---------------------------------------------------------------- 三份素材
+# ---------------------------------------------------------------- 四份素材
 
 
 def video_stream(stream_id: int = 0, max_packet: int = 4096) -> dict:
@@ -426,10 +426,81 @@ def fixture_subtitle_ext4() -> bytes:
     )
 
 
+def subtitle_packet(start_ticks: int, end_ticks: int, text: bytes) -> bytes:
+    """字幕包外层（`docs/字幕规范.md` 的载荷外层一节）：8B start + 8B end + u32 text_len + 1B flags + text（flags = 0）。"""
+    return struct.pack("<QQI", start_ticks, end_ticks, len(text)) + b"\x00" + text
+
+
+def subtitle_style_block(family: bytes = b"Noto Sans CJK SC") -> bytes:
+    """全局样式块（`docs/字幕规范.md` 的样式块一节）：字号 4.0% 屏高（40 × 0.1%）、白字、1 px 黑描边、字族链一项。"""
+    flags = 0x01 | 0x02 | 0x04 | 0x10  # family / size / color / stroke_width
+    body = struct.pack("<HBBHBBI", 20 + len(family), 1, flags, 40, 0, 0, 0xFFFFFFFF)
+    body += struct.pack("<I", 0x000000FF)  # stroke_color: R,G,B,A = 0,0,0,255
+    body += struct.pack("<HH", 1, len(family)) + family
+    return body
+
+
+def fixture_subtitle_pipeline() -> bytes:
+    r"""字幕管线素材：视频流（参数块）+ 字幕流（样式块 + 三个真实字幕包，覆盖三秒）。
+
+    字幕包即 `docs/字幕规范.md` 的载荷外层本体：包外层 + 块语法文本；三个块按 ID 与 start 递增，
+    第三个带 `[\emoji ...]` 指令段。"""
+    second = 1_081_080_000
+    p1 = subtitle_packet(
+        0,
+        second,
+        "<#1/\ntime: 00:00:00.000 - 00:00:01.000\nfont-size: 24px\ntext-align: center\n/>\n#1 Hello CLV\n".encode(),
+    )
+    p2 = subtitle_packet(
+        second,
+        2 * second,
+        "<#2/\ntime: 00:00:01.000 - 00:00:02.000\nfont-size: 24px\n/>\n#2 字幕管线\n".encode(),
+    )
+    p3 = subtitle_packet(
+        2 * second,
+        3 * second,
+        "<#3/\ntime: 00:00:02.000 - 00:00:03.000\nfont-size: 24px\n/>\n#3 [\\\\emoji \U0001f600] CLV\n".encode(),
+    )
+    return assemble(
+        [video_stream(), subtitle_stream()],
+        {
+            0: [(EXT_TYPE_VIDEO_PARAMS, video_params())],
+            1: [(4, subtitle_style_block())],
+        },
+        [
+            {"stream": 0, "dts": 0, "pts": 0, "key": True, "payload": pattern(300, 8)},
+            {"stream": 1, "dts": 0, "pts": 0, "key": False, "payload": p1},
+            {
+                "stream": 0,
+                "dts": second,
+                "pts": second,
+                "key": False,
+                "payload": pattern(120, 9),
+            },
+            {"stream": 1, "dts": second, "pts": second, "key": False, "payload": p2},
+            {
+                "stream": 0,
+                "dts": 2 * second,
+                "pts": 2 * second,
+                "key": False,
+                "payload": pattern(120, 10),
+            },
+            {
+                "stream": 1,
+                "dts": 2 * second,
+                "pts": 2 * second,
+                "key": False,
+                "payload": p3,
+            },
+        ],
+    )
+
+
 FIXTURES = {
     "minimal.clv": fixture_minimal,
     "neg_dts.clv": fixture_neg_dts,
     "subtitle_ext4.clv": fixture_subtitle_ext4,
+    "subtitle_pipeline.clv": fixture_subtitle_pipeline,
 }
 
 

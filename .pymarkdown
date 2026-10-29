@@ -1,0 +1,43 @@
+{
+  // Markdown 格式规则的唯一依据，与仓库根 `.clang-format` 并列：只管结构，不做排版审美。
+  // 由 `scripts/format_all.py` 的 Markdown 半读取。工具是 `pymarkdown`（pip 包 `pymarkdownlnt`，装在 `.venv/`，
+  // 版本登记在 `requirements.txt`），它只认这三个文件名：`.pymarkdown`、`.pymarkdown.yaml|.yml`、
+  // `pyproject.toml [tool.pymarkdown]`——**`.pymarkdown.json` 不在候选里，实测放了也不生效**。
+  // 查找范围**只有当前工作目录**：实测把本件放在仓库根、在子目录里跑同一份长行探针，MD013 照样报
+  // （祖先链不上溯）。所以必须在仓库根执行；`format_all.py` 正是以仓库根为 cwd 起子进程。
+  // 本件按 JSON5 读，注释合法（实测带注释能正常加载）。
+  "plugins": {
+    // MD013 行长：本仓正文与表格按「一格一行写全」维护，80 列判据对中文不成立（实测默认档 693 处）。
+    "md013": { "enabled": false },
+    // MD060 表格列风格：存量分隔行一律紧凑式 `|---|`（实测 922 处）。
+    // 这条与下面两条保留的表判定不同层：MD055 判竖杠齐不齐、MD056 判列数对不对（都留着，且实测有牙），
+    // 本条只判「列间空格怎么排」的审美。
+    "md060": { "enabled": false },
+    // MD036 行首强调当小标题：`demo/README.md` 与 `docs/容器规范.md` 的既有层级就用粗体行起头（实测 7 处），
+    // 按这条改等于重排文档结构，超出格式化权限。
+    "md036": { "enabled": false },
+    // MD010 制表符：**整条关掉，`code_blocks: false` 那一档不可信**。
+    // 实测三段：默认档（`code_blocks: true`）全仓报 35 处，全在围栏里；改 `code_blocks: false` 且表扩展关 ⇒ 归零；
+    // 但 `markdown-tables` 一开（表判定要它），同样两份文件的 19 处围栏内制表符又回来了（`API.md` 12 + `demo/README.md` 7），
+    // 而 `fix` 会把这些示例源码的制表符重排成空格（实测 7 处全变空格）——那是损坏内容。
+    // 代价说清楚：关掉之后「代码块外的散制表符」也不再报（探针件实测能报，这里主动放弃）。
+    "md010": { "enabled": false },
+    // MD033 行内 HTML：表格里换行只有 `<br>` 一条路（实测 21 处），其余 HTML 仍然拒绝。
+    // 注意 `allowed_elements` 是**整体替换**，写 `br` 就得把默认的 `!--,![CDATA[,!DOCTYPE` 一并带上。
+    "md033": { "allowed_elements": "!--,![CDATA[,!DOCTYPE,br" }
+  },
+  "extensions": {
+    // 这两个不开，判定面会缺一整块，而且缺的还是要紧的那块：
+    // front-matter —— `skills/*/SKILL.md` 这类带 YAML 头的件会被误读（`---` 当成 setext 下划线），
+    //   连带 MD003 / MD022 / MD023 / MD041 报出一片**假**违例（实测 84 + 5 + 5 + 1 处）；开了之后四条全部归零，
+    //   所以 MD003 不必关（留着还有牙：实测 setext/atx 混用照样报）。
+    // markdown-tables —— 不开时表格根本不进表解析，MD055 / MD056 / MD058 / MD060 **一条都不报**：
+    //   实测三张负控制表（少一列、缺尾竖杠、多一列）在关着时全默，开了才各自报出 MD056 / MD055 / MD056。
+    //   「单元格内手写换行把整行掉出错位」这类真缺陷就归 MD055/MD056 管，所以这扩展必须开。
+    "front-matter": { "enabled": true },
+    "markdown-tables": { "enabled": true }
+  }
+  // 一条得知的限制（不是配置项）：规则号与 option 键**写错了不会报**——实测段名写 `md999_bogus`、
+  // 键名写 `bogus_opt`，两种情况都静默接受、退出码照旧 0；`mode.strict-config` 也挡不住（实测）。
+  // 所以本文件里每条规则号都要对着 `pymarkdown plugins list` 核，别指望工具替你查拼写。
+}

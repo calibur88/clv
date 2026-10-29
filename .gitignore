@@ -24,10 +24,18 @@ archive/
 参考资料/
 /demo_local/
 .workbuddy/
+.trae/
 
 # ── 第三方源码快照（本地拉取与构建，不进 git；构建产物只落 build/_install）──
 third-party/SDL3/
 third-party/flac/
+third-party/simdutf/
+third-party/utf8proc/
+third-party/sheenbidi/
+third-party/harfbuzz/
+third-party/freetype/
+third-party/zlib/
+third-party/libpng/
 
 # 本地参考环境（上游源码 / 构建产物 / 便携工具链 / 第三方库 / 实验媒体），整个 temp/ 不入库
 temp/

@@ -587,7 +587,7 @@ TEST(VideoHeaders, PublicSurfaceStaysInsideVideoSegment)
 
 	/* 手抄镜像表 = 活码的号位与文案，两处逐字对照：号位与含义取公开头 `CLV_Video.h` 的枚举注释，
 	 * 文案取实现层门面 `StrError` 那张 switch（内部枚举与公开枚举逐项同序，见 `video/status.h`）。
-	 * 73 / 78 / 81 / 82 是退场留下的空位（号位留着不复用）⇒ 不进表，与段外取值同判 unknown。 */
+	 * 73 / 78 / 81 / 82 是不进表的留白号位（号位不复用）⇒ 与段外取值同判 unknown。 */
 	struct CodeText
 	{
 		CLV_VideoError code;
@@ -638,7 +638,7 @@ TEST(VideoHeaders, PublicSurfaceStaysInsideVideoSegment)
 		EXPECT_NE(s, nullptr) << "code " << v;
 		EXPECT_STREQ(s, want) << "code " << v;
 	}
-	// 留白四格单独报一句「空位不该有名字」：漏进表里时报的就是这句话
+	// 无名留白四格单独报一句「空位不该有名字」：漏进表里时报的就是这句话
 	for (const int gap: { 73, 78, 81, 82 })
 		EXPECT_STREQ(CLV_VideoStrError(static_cast<CLV_VideoError>(gap)), "unknown") << "空位 " << gap << " 不该有名字";
 	EXPECT_STREQ(CLV_VideoStrError(static_cast<CLV_VideoError>(999)), "unknown");

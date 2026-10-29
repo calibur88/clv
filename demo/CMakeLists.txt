@@ -5,7 +5,7 @@
 #   cd demo_local && ./bin/clv_demo_core.exe && ./bin/clv_demo_container.exe
 #
 # 动态路（导出面的验收形）：上面那条配置再加 -DCLV_BUILD_SHARED=ON，clv.dll 随同一次刷新进 bin/，
-# 三个示例照同一命令跑 —— 跑通即 dllexport / dllimport 那条路实测过（tests 恒链静态件，不受这个开关影响）。
+# 四个示例照同一命令跑 —— 跑通即 dllexport / dllimport 那条路实测过（tests 恒链静态件，不受这个开关影响）。
 #
 # demo_local/ 由构建创建：bin/ 只放构建产物，每次构建先清空再整份拷贝；
 # src/ 是 demo/ 的同步副本；示例跑出来的文件落在 demo_local/ 根上。
@@ -18,22 +18,24 @@ set(CLV_DEMO_LOCAL ${CMAKE_SOURCE_DIR}/demo_local)
 set(CLV_DEMO_OUT ${CLV_DEMO_LOCAL}/bin)
 set(CLV_DEMO_SRC ${CLV_DEMO_LOCAL}/src)
 set(CLV_DEMO_OBJ ${CMAKE_CURRENT_BINARY_DIR}/clv_demo_bin)
-set(CLV_DEMO_SNAPSHOT core.c container.c video.c README.md)
+set(CLV_DEMO_SNAPSHOT core.c container.c video.c subtitle.c subtitle_player.c subtitle_player.h README.md)
 
-# 可执行名与源文件名不同步：clv_demo_core ← core.c，clv_demo_container ← container.c，clv_demo_video ← video.c
+# 可执行名与源文件名不同步：clv_demo_core ← core.c，clv_demo_container ← container.c，
+# clv_demo_video ← video.c，clv_demo_subtitle ← subtitle.c + subtitle_player.c
 add_executable(clv_demo_core core.c)
 add_executable(clv_demo_container container.c)
 add_executable(clv_demo_video video.c)
+add_executable(clv_demo_subtitle subtitle.c subtitle_player.c)
 
-foreach(target clv_demo_core clv_demo_container clv_demo_video)
-    # 三个 demo 都只链公开 ABI、不碰内部头；告警档走 clv_apply_target_flags，与主库同一套开关：
+foreach(target clv_demo_core clv_demo_container clv_demo_video clv_demo_subtitle)
+    # 四个 demo 都只链公开 ABI、不碰内部头；告警档走 clv_apply_target_flags，与主库同一套开关：
     # 恒带 /W4 /permissive-，/WX 只在 CLV_WARNINGS_AS_ERRORS=ON 时追加（该开关默认 OFF，默认不把警告当错误）。
     #
     # 示例按 C 编译：公开头要能被纯 C 消费者吃下。
     # CRT 不在这里指定：顶层 CMAKE_MSVC_RUNTIME_LIBRARY 把全仓库（含 gtest 与本目录产物）锁在同一套
     # 动态 CRT 上，这里跟着主库走即可，不加任何 CRT 相关的编译或链接选项。
     # 链接分工是定好的形状：demo 是本仓库天然的外部 ABI 消费者，开了动态就链 DLL，
-    # 三个示例跑通即动态路验收（不需要另做 probe，也不动 tests）；没开就退回静态件。
+    # 四个示例跑通即动态路验收（不需要另做 probe，也不动 tests）；没开就退回静态件。
     if(CLV_BUILD_SHARED)
         target_link_libraries(${target} PRIVATE clv)
     else()
@@ -64,10 +66,14 @@ endforeach()
 # 两条都直接吃公开 C ABI 交出来的字节。找不到 SDL3 就把配置判失败、不静默降级：
 # 因为这时候「播放器 demo」是开了的，静默少一个目标比当场报错更难查。
 target_link_libraries(clv_demo_video PRIVATE SDL3::SDL3)
+target_link_libraries(clv_demo_subtitle PRIVATE SDL3::SDL3)
 
 # SDL3 这份装的是动态件（_install/bin/SDL3.dll + lib/SDL3.lib 导入库），所以运行时也要它在 exe 同目录。
 # 与上面 clv.dll 同一手法：投进 build 里的产物目录，跟着那次整份刷新一起进 demo_local/bin。
 add_custom_command(TARGET clv_demo_video POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:SDL3::SDL3> ${CLV_DEMO_OBJ}
+    VERBATIM)
+add_custom_command(TARGET clv_demo_subtitle POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:SDL3::SDL3> ${CLV_DEMO_OBJ}
     VERBATIM)
 
@@ -80,7 +86,7 @@ add_custom_command(TARGET clv_demo_video POST_BUILD
 # bin 是纯产物镜像：整份清掉再拷，所以改名、删目标都不会在 bin 里留下孤儿。
 # 这个 rm -rf 的作用域就是上面 CLV_DEMO_OUT 这一个目录，示例生成的文件与 src/ 副本都不在里面。
 add_custom_target(clv_demo_local ALL
-    DEPENDS clv_demo_core clv_demo_container clv_demo_video)
+    DEPENDS clv_demo_core clv_demo_container clv_demo_video clv_demo_subtitle)
 if(CLV_BUILD_SHARED)
     add_custom_command(TARGET clv_demo_local POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:clv> ${CLV_DEMO_OBJ}

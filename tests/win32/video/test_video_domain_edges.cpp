@@ -140,7 +140,7 @@ TEST(DomainEdges, InterQ1DcWindowEdge8159DequantizesTo16319AndPixelsOutAt255)
 	std::memset(pred, 0, sizeof(pred));
 	ReconstructBlock(qf, 1u, false, pred, out);
 	// 16319 ÷ 64 = 254.984375 → 远离零取整 → 255
-	ASSERT_EQ(RoundResidual(16319.0 / 64.0), 255);
+	ASSERT_EQ(RoundResidual(16319), 255);
 	ExpectAll(out, 255, "帧间窗口上界 8159 / q=1 / 预测 0");
 	std::cout << "[帧间窗口上界] |QF|=8159 → 反分段 " << DequantizeValue(8159, 1u) << " → 残差 255 → 像素 255\n";
 }
@@ -185,7 +185,7 @@ TEST(DomainEdges, IntraQ127DcWindowEdge63ClampsTo8192Exactly)
 	std::memset(pred, kIntraPredLevel8, sizeof(pred));	  // 帧内预测电平恒 128
 	ReconstructBlock(qf, 127u, true, pred, out);
 	// 8192 ÷ 64 = 128 → 128 + 128 = 256 → 像素域夹到 255（上端点）
-	ASSERT_EQ(RoundResidual(8192.0 / 64.0), 128);
+	ASSERT_EQ(RoundResidual(8192), 128);
 	ExpectAll(out, 255, "帧内夹到 8192 / 预测 128");
 
 	// 同一份夹取值配低预测面：23 + 128 = 151，未越界，说明上一行的 255 是像素域夹出来的
@@ -221,7 +221,7 @@ TEST(DomainEdges, PixelSaturationBothEndsAcrossSevenPredLevelsAndTwoSigns)
 	DcOnly(qf_up, 8159);	   // 帧间 +255 残差
 	DcOnly(qf_down, -8159);	   // 帧间 −255 残差
 	ASSERT_EQ(DequantizeValue(-8159, 1u), -16319);
-	ASSERT_EQ(RoundResidual(-16319.0 / 64.0), -255);
+	ASSERT_EQ(RoundResidual(-16319), -255);
 	ASSERT_EQ(kResidualClampMin8, -256);	// −255 未触第三级下界，说明像素 0 是第四级夹出来的
 
 	size_t hits_up = 0u, hits_down = 0u;

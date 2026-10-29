@@ -39,6 +39,15 @@ set(CLV_TEST_SOURCES ${CLV_TEST_SOURCES}
     win32/api/test_logger.cpp
     win32/api/test_memory.cpp
     win32/api/test_version.cpp
+    win32/api/test_subtitle_api.cpp
+    win32/subtitle/test_subtitle_packet.cpp
+    win32/subtitle/test_subtitle_style.cpp
+    win32/subtitle/test_subtitle_text.cpp
+    win32/subtitle/test_subtitle_parser.cpp
+    win32/subtitle/test_subtitle_cal.cpp
+    win32/subtitle/test_subtitle_render.cpp
+    win32/subtitle/header_probe_c11.c
+    win32/subtitle/header_probe_cxx17.cpp
     win32/api/test_container.cpp
     win32/api/test_video_tool_rejection.cpp
     win32/api/test_video_lossless_container.cpp

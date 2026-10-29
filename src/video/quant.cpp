@@ -1,6 +1,6 @@
 #include "quant.h"
 
-#include <cmath>
+#include <cstdlib>
 
 namespace clv
 {
@@ -48,19 +48,16 @@ namespace clv
 			for (int i = 0; i < kBlockCoefs; ++i) t[i] = buf[i];
 		}
 
-		void InverseHadamard8(const int32_t* f2, double* y)
+		void InverseHadamard8(const int32_t* f2, int32_t* b)
 		{
 			int32_t buf[kBlockCoefs];
 			for (int i = 0; i < kBlockCoefs; ++i) buf[i] = f2[i];
 			for (int c = 0; c < kBlockSide; ++c) fwht8_stride(buf + c, kBlockSide);
 			for (int r = 0; r < kBlockSide; ++r) fwht8_stride(buf + r * kBlockSide, 1);
-			for (int i = 0; i < kBlockCoefs; ++i) y[i] = static_cast<double>(buf[i]) / 64.0;
+			for (int i = 0; i < kBlockCoefs; ++i) b[i] = buf[i];
 		}
 
-		int32_t RoundResidual(double y) noexcept
-		{
-			return static_cast<int32_t>((y >= 0.0) ? std::floor(y + 0.5) : std::ceil(y - 0.5));
-		}
+		int32_t RoundResidual(int32_t b) noexcept { return (b >= 0) ? ((b + 32) >> 6) : -(((-b) + 32) >> 6); }
 
 		int32_t QuantizeValue(int32_t coef, uint8_t q)
 		{
@@ -71,11 +68,17 @@ namespace clv
 			const int64_t a = coef < 0 ? -static_cast<int64_t>(coef) : static_cast<int64_t>(coef);
 			if (a == 0) return 0;
 
-			// 最近电平的候选起点：n0 = rint((a + δ − q) ÷ 2q)，半程取偶
-			const double raw = static_cast<double>(a + static_cast<int64_t>(delta) - static_cast<int64_t>(q)) /
-							   static_cast<double>(2 * static_cast<int64_t>(q));
-			int64_t n0 = static_cast<int64_t>(std::nearbyint(raw));
-			if (n0 < 0) n0 = 0;
+			// 最近电平的候选起点：n0 = rint((a + δ − q) ÷ 2q)，半程取偶。
+			// 整数式：商向下取整后看余数 —— 余数大于半个分母就进位；恰为半个分母时向偶数靠。
+			const int64_t num = a + static_cast<int64_t>(delta) - static_cast<int64_t>(q);
+			const int64_t den = 2 * static_cast<int64_t>(q);
+			int64_t n0 = 0;
+			if (num > 0)
+			{
+				n0 = num / den;
+				const int64_t rem = num - n0 * den;
+				if (rem > den / 2 || (rem == den / 2 && (n0 & 1) != 0)) ++n0;
+			}
 
 			int64_t best_n = 0;
 			int64_t best_err = a;	 // 电平 0 的误差
@@ -133,19 +136,6 @@ namespace clv
 			const int64_t delta = (q & 1u) ? 0 : 1;
 			// max|err| ≤ 1.5q − δ/2 的等价整数式
 			return 2 * static_cast<int64_t>(worst) <= 3 * static_cast<int64_t>(q) - delta;
-		}
-
-		bool PixelBoundOk(const double* diff, uint8_t q, double* max_err)
-		{
-			double worst = 0.0;
-			for (int i = 0; i < kBlockCoefs; ++i)
-			{
-				const double e = std::fabs(diff[i]);
-				if (e > worst) worst = e;
-			}
-			if (max_err != nullptr) *max_err = worst;
-			const double delta = (q & 1u) ? 0.0 : 1.0;
-			return worst <= 1.5 * static_cast<double>(q) - 0.5 * delta;
 		}
 
 	}	 // namespace video

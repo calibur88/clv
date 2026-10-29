@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(clv VERSION 0.8.2 LANGUAGES C CXX)
+project(clv VERSION 0.9.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -10,6 +10,12 @@ option(CLV_BUILD_SHARED "Build CLV as a shared library" OFF)
 option(CLV_LOGGER_USE_SPDLOG "Use the spdlog logger backend instead of the null one" OFF)
 option(CLV_WARNINGS_AS_ERRORS "Treat compiler warnings as errors for our own targets" OFF)
 option(CLV_BUILD_DEMOS "Build the demo programs under demo/" OFF)
+option(CLV_BUILD_SUBTITLE_RENDERER "Build the subtitle renderer (needs the text stack)" ON)
+if(CLV_BUILD_SUBTITLE_RENDERER)
+    add_compile_definitions(CLV_SUBTITLE_RENDERER_ENABLED=1)
+else()
+    add_compile_definitions(CLV_SUBTITLE_RENDERER_ENABLED=0)
+endif()
 
 # 系数编码法：编码器写出哪一法。0 = 定宽直写（零也算载荷），1 = EOB 截尾 + Exp-Golomb 幅值。
 # 这一档必须按「仓」定而不是按「target」定：块层的编码器侧取的是编译期常量，
@@ -34,7 +40,7 @@ add_compile_definitions(CLV_DEC_MB_THREADS=${CLV_DEC_MB_THREADS})
 # 判读口径：数的是**注册数**（`ctest -N` 报出的条数），不是通过数 —— 一条例跑失败或被判跳过都不改它，
 # 只有用例增删、或测试目标没建起来才会让它动；换构型（含 CLV_COEF_CODING 两档、Debug/Release、ASan）不改这个数字。
 # 例数变了就同批改这一格与 `tests/docs/` 的对外计数。
-set(CLV_EXPECTED_TESTS 390)
+set(CLV_EXPECTED_TESTS 431)
 message(STATUS "CLV: 期望 ctest 注册例数 = ${CLV_EXPECTED_TESTS}")
 
 enable_testing()
@@ -114,14 +120,63 @@ if(NOT FLAC_FOUND)
         "不要改判定逻辑去换路（见 README.md 构建与验收节「路线锁定」）。")
 endif()
 
+# 字幕文本栈（simdutf / utf8proc / SheenBidi / HarfBuzz / FreeType）：CAL 与字体解析的硬依赖。
+# 只被 backends/text 与 platform/font 包含，故在库函数里 PRIVATE 链接；使用侧不需要自己找。
+# 头与库都是静态件，装在 install_third_party.py 的固定落点 _install 下。
+set(CLV_TEXT_PREFIX "")
+foreach(CLV_PREFIX IN ITEMS ${CMAKE_BINARY_DIR}/_install ${CMAKE_SOURCE_DIR}/build/_install)
+    if(EXISTS ${CLV_PREFIX}/include/simdutf.h AND EXISTS ${CLV_PREFIX}/include/harfbuzz/hb.h
+       AND EXISTS ${CLV_PREFIX}/include/freetype2/ft2build.h
+       AND EXISTS ${CLV_PREFIX}/include/SheenBidi/SheenBidi.h)
+        set(CLV_TEXT_PREFIX ${CLV_PREFIX})
+        break()
+    endif()
+endforeach()
+if(NOT CLV_TEXT_PREFIX)
+    message(FATAL_ERROR
+        "CLV: 找不到字幕文本栈（simdutf / utf8proc / SheenBidi / HarfBuzz / FreeType）。"
+        "先跑 scripts/install_third_party.py 把它们装进 build/_install，"
+        "再确认 include/simdutf.h、include/harfbuzz/hb.h、include/freetype2/ft2build.h、"
+        "include/SheenBidi/SheenBidi.h 都在。")
+endif()
+find_library(CLV_SIMDUTF_LIBRARY NAMES simdutf PATHS ${CLV_TEXT_PREFIX}/lib NO_DEFAULT_PATH)
+find_library(CLV_UTF8PROC_LIBRARY NAMES utf8proc_static utf8proc PATHS ${CLV_TEXT_PREFIX}/lib NO_DEFAULT_PATH)
+find_library(CLV_SHEENBIDI_LIBRARY NAMES SheenBidi PATHS ${CLV_TEXT_PREFIX}/lib NO_DEFAULT_PATH)
+find_library(CLV_HARFBUZZ_LIBRARY NAMES harfbuzz PATHS ${CLV_TEXT_PREFIX}/lib NO_DEFAULT_PATH)
+# 调试构型装出来的是 freetyped / libpng16_staticd / zlibstaticd，发布构型没有 d 尾；两种名都试。
+find_library(CLV_FREETYPE_LIBRARY NAMES freetyped freetype PATHS ${CLV_TEXT_PREFIX}/lib NO_DEFAULT_PATH)
+find_library(CLV_PNG_LIBRARY NAMES libpng16_staticd libpng16_static libpng16
+             PATHS ${CLV_TEXT_PREFIX}/lib NO_DEFAULT_PATH)
+find_library(CLV_ZLIB_LIBRARY NAMES zlibstaticd zlibstatic zlib PATHS ${CLV_TEXT_PREFIX}/lib NO_DEFAULT_PATH)
+foreach(CLV_TEXT_VAR IN ITEMS CLV_SIMDUTF_LIBRARY CLV_UTF8PROC_LIBRARY CLV_SHEENBIDI_LIBRARY
+        CLV_HARFBUZZ_LIBRARY CLV_FREETYPE_LIBRARY CLV_PNG_LIBRARY CLV_ZLIB_LIBRARY)
+    if(NOT ${CLV_TEXT_VAR})
+        message(FATAL_ERROR "CLV: 文本栈缺件 ${CLV_TEXT_VAR}（前缀 ${CLV_TEXT_PREFIX}）")
+    endif()
+endforeach()
+set(CLV_TEXT_INCLUDES
+    ${CLV_TEXT_PREFIX}/include
+    ${CLV_TEXT_PREFIX}/include/harfbuzz
+    ${CLV_TEXT_PREFIX}/include/freetype2
+    ${CLV_TEXT_PREFIX}/include/SheenBidi)
+# HarfBuzz 链 FreeType；FreeType 开了 PNG（彩色 emoji），故再链 libpng 与 zlib。
+set(CLV_TEXT_LIBS
+    ${CLV_HARFBUZZ_LIBRARY}
+    ${CLV_FREETYPE_LIBRARY}
+    ${CLV_PNG_LIBRARY}
+    ${CLV_ZLIB_LIBRARY}
+    ${CLV_SIMDUTF_LIBRARY}
+    ${CLV_UTF8PROC_LIBRARY}
+    ${CLV_SHEENBIDI_LIBRARY})
+
 # SDL3 只被 demo 播放器用，库本身不依赖它：不开 CLV_BUILD_DEMOS 就不去找。
 if(CLV_BUILD_DEMOS)
     find_package(SDL3 QUIET)
     if(NOT SDL3_FOUND)
-        # 播放器示例（demo/video.c）链 SDL3::SDL3 —— 有 target 消费它之后，缺它就判配置失败，
+        # 两份播放器示例（demo/video.c 与 demo/subtitle_player.c）链 SDL3::SDL3 —— 有 target 消费它之后，缺它就判配置失败，
         # 不降级成 WARNING：降级会让缺依赖的配置照样过，到编译 demo 时才炸，报的还是链接错。
         message(FATAL_ERROR
-            "CLV: 开了 CLV_BUILD_DEMOS 但找不到 SDL3 —— demo/video.c 的显示腿与音频腿都要它。"
+            "CLV: 开了 CLV_BUILD_DEMOS 但找不到 SDL3 —— 两份播放器示例（demo/video.c 与 demo/subtitle_player.c）的显示腿与音频腿都要它。"
             "先跑 scripts/install_third_party.py 把它装进 build/_install（找到的应是 "
             "build/_install/cmake/SDL3Config.cmake），再配置。库本体不依赖 SDL3：只要 ctest 就关掉本开关。")
     endif()
@@ -165,7 +220,7 @@ include(cmake/backends/null.cmake)
 function(clv_configure_library_target target)
     target_include_directories(${target}
         PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
-        PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
+        PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/src
     )
     target_compile_definitions(${target} PRIVATE ${CLV_PLATFORM_DEFINE})
     clv_apply_target_flags(${target})
@@ -177,6 +232,14 @@ function(clv_configure_library_target target)
     # 音频编解码闭环的后端：libFLAC 只被 backends/flac/flac_codec.cpp 一个文件包含，
     # 所以是 PRIVATE 链接 —— 使用侧不需要一起找 FLAC。
     target_link_libraries(${target} PRIVATE FLAC::FLAC)
+    # 字幕文本栈：同样只有 backends/text 与 platform/font 包含，PRIVATE 链接。
+    target_include_directories(${target} PRIVATE ${CLV_TEXT_INCLUDES})
+    target_compile_definitions(${target} PRIVATE SB_CONFIG_EXPERIMENTAL_TEXT_API=1 UTF8PROC_STATIC)
+    target_link_libraries(${target} PRIVATE ${CLV_TEXT_LIBS})
+    if(WIN32)
+        # DirectWrite 系统字体解析
+        target_link_libraries(${target} PRIVATE dwrite ole32)
+    endif()
 endfunction()
 
 add_library(clv_static STATIC ${CLV_SOURCES})

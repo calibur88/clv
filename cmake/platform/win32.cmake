@@ -2,4 +2,5 @@
 
 set(CLV_SOURCES ${CLV_SOURCES}
     platform/fileio/win32_fileio.cpp
+    platform/font/resolve_win32.cpp
 )

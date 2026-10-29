@@ -2,7 +2,7 @@
 
 #include "platform/platform.h"
 
-// ---------- 选源：全库唯一一处平台分派 ----------
+// ---------- 选源：文件 IO 后端的唯一选源点（全库其余平台差异按整件自守卫分档）----------
 // 判 CLV_PLATFORM_*，不碰裸宏。
 #if defined(CLV_PLATFORM_WINDOWS)
 	#include "win32_fileio.h"

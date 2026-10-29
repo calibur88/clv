@@ -59,8 +59,13 @@ SANITIZE_FLAGS = {
 # 独立前缀 / 独立构建目录名后缀：与正常构型的 _install、*-build 完全错开。
 SANITIZE_DIR_SUFFIX = {"address": "_asan"}
 SANITIZE_BUILD_SUFFIX = {"address": "-asan"}
-# SDL3 只被 demo 播放器用、库与测试都不链它，插桩构型不建（要插桩的只有 spdlog/googletest/flac）。
-SANITIZE_SKIP = {"address": ("SDL3",)}
+# SDL3 只被 demo 播放器链（且是 DLL）、库与测试都不链它，插桩构型不建（要插桩的是 spdlog/googletest/flac/zlib/libpng）。
+# 文本栈五件（simdutf / utf8proc / sheenbidi / harfbuzz / freetype）自字幕面进主树起由库经 backends/text/ 链用，
+# 是有消费者的；它们是 C ABI 静态件，与插桩对象混链不报 annotate 不匹配，故插桩构型按成本不建。
+# 代价要写在脸上：这五件内部的内存错误不在 sanitizer 覆盖内（字幕渲染的字形与整形腿正落在其中）。
+SANITIZE_SKIP = {
+    "address": ("SDL3", "simdutf", "utf8proc", "sheenbidi", "harfbuzz", "freetype")
+}
 
 # (源目录名, 构建目录名, 安装后的 config 文件, 额外 cmake 选项)
 PACKAGES = [
@@ -100,18 +105,108 @@ PACKAGES = [
             "-DWITH_OGG=OFF",
         ],
     ),
+    # 字幕层 CAL 的文本栈五件。当前库本体与测试都还没有消费者，装齐是为了让字幕层
+    # 的沙盒与后续落地轮共用同一份安装树；链接侧等字幕层进主树时再接。
+    (
+        "simdutf",
+        "simdutf-build",
+        "lib/cmake/simdutf/simdutf-config.cmake",
+        [
+            "-DSIMDUTF_TESTS=OFF",
+            "-DSIMDUTF_ICONV=OFF",
+            "-DSIMDUTF_TOOLS=OFF",
+        ],
+    ),
+    (
+        "utf8proc",
+        "utf8proc-build",
+        "lib/cmake/utf8proc/utf8proc-config.cmake",
+        ["-DUTF8PROC_INSTALL=ON", "-DUTF8PROC_ENABLE_LTO=OFF"],
+    ),
+    (
+        "sheenbidi",
+        "sheenbidi-build",
+        "lib/cmake/SheenBidi/SheenBidiConfig.cmake",
+        [
+            "-DSHEENBIDI_BUILD_DOCS=OFF",
+            "-DSHEENBIDI_ENABLE_TESTS=OFF",
+            # 字幕层的 Bidi 面走 SBText 一族（上游标 experimental，默认编译关闭）；
+            # 关掉这个开关，导出库里就没有 SBTextCreate 符号，消费者链接期才报「未知外部符号」。
+            "-DSB_CONFIG_EXPERIMENTAL_TEXT_API=ON",
+        ],
+    ),
+    # 彩色 emoji 位图（CBDT 的 PNG 条目）要 FreeType 能解 PNG ⇒ 先补 libpng 与它依赖的 zlib。
+    # 两者都在 freetype 之前装，且都把本安装前缀喂进 CMAKE_PREFIX_PATH，
+    # 否则 libpng 的 find_package(ZLIB) 与 FreeType 的 find_package(PNG) 都找不到同前缀的件。
+    (
+        "zlib",
+        "zlib-build",
+        "include/zlib.h",
+        ["-DZLIB_BUILD_EXAMPLES=OFF"],
+    ),
+    (
+        "libpng",
+        "libpng-build",
+        "include/libpng16/png.h",
+        [
+            "-DCMAKE_PREFIX_PATH={prefix}",
+            "-DPNG_SHARED=OFF",
+            "-DPNG_STATIC=ON",
+            "-DPNG_TESTS=OFF",
+        ],
+    ),
+    # FreeType 先于 HarfBuzz 装：HarfBuzz 以 HB_HAVE_FREETYPE=ON 构建，hb-ft 入口要用同前缀里的 FreeType。
+    (
+        "freetype",
+        "freetype-build",
+        "lib/cmake/freetype/freetype-config.cmake",
+        [
+            "-DFT_DISABLE_BZIP2=ON",
+            "-DFT_DISABLE_BROTLI=ON",
+            # PNG 从「显式关」改成「要求有」：字幕层的彩色 emoji 走 CBDT 位图，
+            # 该件的字形条目全是 PNG（实测 CBLC imageFormat = 17），没有解码就没有彩色像素。
+            "-DFT_REQUIRE_PNG=ON",
+            "-DFT_DISABLE_ZLIB=ON",
+            "-DTESTING=OFF",
+            "-DCMAKE_PREFIX_PATH={prefix}",
+        ],
+    ),
+    (
+        "harfbuzz",
+        "harfbuzz-build",
+        "lib/cmake/harfbuzz/harfbuzzConfig.cmake",
+        [
+            "-DCMAKE_PREFIX_PATH={prefix}",
+            "-DHB_BUILD_SUBSET=OFF",
+            "-DHB_BUILD_UTILS=OFF",
+            "-DHB_BUILD_RASTER=OFF",
+            "-DHB_HAVE_ICU=OFF",
+            "-DHB_HAVE_FREETYPE=ON",
+            "-DHB_HAVE_GLIB=OFF",
+            "-DHB_HAVE_CAIRO=OFF",
+            "-DHB_BUILD_TESTS=OFF",
+            "-DHB_BUILD_BENCHMARKS=OFF",
+            "-DHB_ENABLE_VIEWERS=OFF",
+        ],
+    ),
 ]
 
 # 许可文本清单：各包 cmake 的安装规则不一致（SDL3 自带、flac 不带），故由本脚本统一补投到 _install。
-# flac 这一条列五份：不带后缀的 COPYING 与四份带后缀的 COPYING.FDL / COPYING.GPL / COPYING.LGPL /
-# COPYING.Xiph。带后缀那四份覆盖不同组件——链进去的 libFLAC 适用 COPYING.Xiph（Xiph.Org 的 BSD 式），
-# GPL / LGPL / FDL 三份属未构建的程序、旧组件与文档；不带后缀那份是 flac 自己的总许可，一并投出。
-# 打印的份数以这份清单为准，清单加一项就投一项，别在注释里另记一个数。
+# flac 这一条列四份：1.5.0 源树只有带后缀的 COPYING.FDL / COPYING.GPL / COPYING.LGPL / COPYING.Xiph，
+# 没有不带后缀的总许可件。链进去的 libFLAC 适用 COPYING.Xiph（Xiph.Org 的 BSD 式），
+# GPL / LGPL / FDL 三份属未构建的程序、旧组件与文档。打印的份数以这份清单为准，清单加一项就投一项，
+# 别在注释里另记一个数。
 LICENSE_FILES = {
     "spdlog": ["LICENSE"],
     "googletest": ["LICENSE"],
     "SDL3": ["LICENSE.txt"],
-    "flac": ["COPYING", "COPYING.FDL", "COPYING.GPL", "COPYING.LGPL", "COPYING.Xiph"],
+    "flac": ["COPYING.FDL", "COPYING.GPL", "COPYING.LGPL", "COPYING.Xiph"],
+    # 文本栈五件：许可件都放在各自源码根，按上游原名投递；simdutf 双许可两份都投。
+    "simdutf": ["LICENSE-MIT", "LICENSE-APACHE"],
+    "utf8proc": ["LICENSE.md"],
+    "sheenbidi": ["LICENSE"],
+    "freetype": ["LICENSE.TXT"],
+    "harfbuzz": ["COPYING"],
 }
 
 MULTI_CONFIG_PREFIXES = ("Visual Studio", "Xcode", "Ninja Multi-Config")
@@ -251,6 +346,47 @@ def copy_licenses(name: str, install_dir: Path) -> tuple[list[str], list[str]]:
     return copied, missing
 
 
+HARFBUZZ_CONFIG_REL = "lib/cmake/harfbuzz/harfbuzzConfig.cmake"
+HARFBUZZ_BROKEN_INCLUDE = '  INTERFACE_INCLUDE_DIRECTORIES "/harfbuzz"'
+HARFBUZZ_FIXED_INCLUDE = (
+    '  INTERFACE_INCLUDE_DIRECTORIES "${_IMPORT_PREFIX}/include/harfbuzz"'
+)
+
+
+def fix_harfbuzz_config(install_dir: Path) -> str:
+    """改写 HarfBuzz 导出配置里的 include 路径，返回一句状态文本（供日志直接打印）。
+
+    HarfBuzz 14.4.0 的 cmake 安装规则把 `harfbuzz::harfbuzz` 的 INSTALL_INTERFACE 导出成了
+    字面量 `"/harfbuzz"` —— 少了安装前缀那一段，指到一个不存在的路径上。消费者 find_package 之后
+    只要在生成阶段真的用到这个接口，CMake 就报错，只能自己覆盖目标属性。上游源码不改，
+    故在装完的导出件上就地补：前缀用配置文件自己算出的 `_IMPORT_PREFIX`（该变量在改写点已定义、
+    文件末尾才清空），因此换前缀重装也不需要再改这里。
+
+    幂等：只认那一行字面量。改写后的文件再跑一次不匹配，落 noop 分支；上游哪天修好导出，
+    同样落 noop，不会把好文件改坏。改完再确认 `include/harfbuzz/hb.h` 真在树里 —— 指一个
+    算出来却不存在的路径，比留一个坏字面量更难查。
+    """
+    cfg = install_dir / HARFBUZZ_CONFIG_REL
+    if not cfg.is_file():
+        raise SystemExit(
+            "harfbuzz post-install fix: config file not found: %s" % ascii(str(cfg))
+        )
+    header = install_dir / "include" / "harfbuzz" / "hb.h"
+    if not header.is_file():
+        raise SystemExit(
+            "harfbuzz post-install fix: expected header missing, refusing to point the "
+            "imported target at a directory that is not there: %s" % ascii(str(header))
+        )
+    text = cfg.read_text(encoding="utf-8")
+    if HARFBUZZ_BROKEN_INCLUDE not in text:
+        if HARFBUZZ_FIXED_INCLUDE in text:
+            return "already fixed"
+        return "no broken include line found, left untouched"
+    patched = text.replace(HARFBUZZ_BROKEN_INCLUDE, HARFBUZZ_FIXED_INCLUDE, 1)
+    cfg.write_text(patched, encoding="utf-8")
+    return "rewrote INTERFACE_INCLUDE_DIRECTORIES to the install prefix"
+
+
 def install_package(
     name: str,
     build_name: str,
@@ -281,8 +417,13 @@ def install_package(
             "[skip] %s: already installed (marker %s); --force rebuilds it; "
             "license entries verified %d %s" % (name, marker, len(got), got)
         )
+        if name == "harfbuzz":
+            # 跳过重装也要修：导出缺陷在已装好的文件里，不修就一直是坏的
+            print("[fix] harfbuzz cmake config: %s" % fix_harfbuzz_config(install_dir))
         return missing
 
+    # {prefix} 在 install_package 里替换成本次安装前缀：HarfBuzz 的 hb-ft 要能找到同前缀里的 FreeType。
+    extra = [item.replace("{prefix}", install_dir.as_posix()) for item in extra]
     cfg = [
         "cmake",
         "-S",
@@ -318,6 +459,8 @@ def install_package(
             % (name, marker, name)
         )
     got, missing = copy_licenses(name, install_dir)
+    if name == "harfbuzz":
+        print("[fix] harfbuzz cmake config: %s" % fix_harfbuzz_config(install_dir))
     print(
         "[done] %s -> %s; license entries staged %d %s"
         % (name, install_dir.relative_to(ROOT), len(got), got)
@@ -342,6 +485,12 @@ def main() -> int:
         help="用 sanitizer 插桩开关重编依赖并装进独立前缀（address → build/_install_asan，"
         "第二个落点，配库要显式传 -DCMAKE_PREFIX_PATH）；不给则是完全不变的默认构型与默认落点",
     )
+    parser.add_argument(
+        "--prefix",
+        default=None,
+        help="自定义安装前缀（相对仓库根或绝对路径）。缺省仍是 build/_install，不传本参数时行为不变；"
+        "装 Release 档第三方时用独立前缀（如 build/_install_release），别盖掉 Debug 那份",
+    )
     args = parser.parse_args()
 
     san = args.sanitize
@@ -353,8 +502,23 @@ def main() -> int:
         )
 
     generator = pick_generator(args.generator)
-    install_dir = (
-        BUILD_DIR / ("_install" + SANITIZE_DIR_SUFFIX[san]) if san else INSTALL_DIR
+    prefix_arg = Path(args.prefix) if args.prefix else None
+    if san and prefix_arg:
+        raise SystemExit(
+            "--prefix 与 --sanitize 互斥：插桩档已有固定前缀 build/_install%s"
+            % SANITIZE_DIR_SUFFIX[san]
+        )
+    if prefix_arg and prefix_arg.is_absolute():
+        install_dir = prefix_arg
+    elif prefix_arg:
+        install_dir = ROOT / prefix_arg
+    else:
+        install_dir = INSTALL_DIR
+    # 自定义前缀时把构建目录与日志名一起错开：与默认 Debug 档共用会互相覆盖产物和读数
+    cfg_suffix = (
+        ""
+        if (san or not prefix_arg)
+        else "-" + prefix_arg.name.replace("_install", "").lstrip("_")
     )
     print(
         "generator: %s\nbuild config: %s\ninstall prefix: %s"
@@ -369,20 +533,22 @@ def main() -> int:
     for name, build_name, marker, extra in PACKAGES:
         if san and name in SANITIZE_SKIP[san]:
             print(
-                "[skip] %s: not built in the sanitizer configuration "
-                "(neither the library nor the tests link it)" % name
+                "[skip] %s: not rebuilt with the sanitizer switches (C ABI static lib; "
+                "consumers cross the boundary, so no annotate mismatch) -- its internals are "
+                "outside this round's sanitizer coverage" % name
             )
             continue
+        extra_suffix = SANITIZE_BUILD_SUFFIX[san] if san else cfg_suffix
         missing_licenses += install_package(
             name,
-            build_name + (SANITIZE_BUILD_SUFFIX[san] if san else ""),
+            build_name + extra_suffix,
             marker,
             list(extra) + (SANITIZE_FLAGS[san] if san else []),
             generator,
             args.config,
             args.force,
             install_dir,
-            SANITIZE_BUILD_SUFFIX[san] if san else "",
+            extra_suffix,
         )
 
     if san:

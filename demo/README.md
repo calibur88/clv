@@ -1,7 +1,7 @@
 # CLV 功能展示（demo）
 
 > 本目录放示例源码与本说明，**不放构建产物**（产物落 `build/` 与构建时创建的 `demo_local/`）。
-> 当前文档版本：0.8.2；示例打印的工程版本是 `0.8.2-dev`。容器面 `CLV_Container.h` 的函数名 / 参数结构体 / 出参形态属对外 ABI，改动即破坏调用方；错误码只在枚举尾部追加、既有码值与语义不动；未冻结的是 `.clv` 的字节格式与语义。
+> 当前文档版本：0.9.0；示例打印的工程版本是 `0.9.0-dev`。容器面 `CLV_Container.h` 的函数名 / 参数结构体 / 出参形态属对外 ABI，改动即破坏调用方；错误码只在枚举尾部追加、既有码值与语义不动；未冻结的是 `.clv` 的字节格式与语义。字幕面 `CLV_Subtitle.h` 自 0.9.0 追加，随 1.0 一并冻结。
 
 **项目速记**：
 
@@ -10,7 +10,7 @@
 - `CLV_Logger`：日志，UTF-8 字节串直投，带等级过滤；
 - `CLV_Memory`：分配口，直通 C 运行时；
 - `CLV_Container`：容器读写面（形状属对外 ABI，未冻结的是 `.clv` 的字节格式与语义）——写方 `OpenFile → AddStream → AddExtBlock → WriteFrame → Finish`，读方 `OpenFile → NextFrame` + 结构出参；
-- 完整口径见仓库根 `README.md`；公开头共九份（`CLV_Audio.h`、`CLV_Container.h`、`CLV_Export.h`、`CLV_File.h`、`CLV_Logger.h`、`CLV_Memory.h`、`CLV_Pace.h`、`CLV_Version.h`、`CLV_Video.h`）；三份示例直接 include 用到其中八份，唯一没直接用到的是导出宏头 `CLV_Export.h`，它由各接口头自己带进来。`container.c` 的 `info` 子命令另用 `CLV_File.h`，`video.c` 还要链一份外部播放器库 SDL3。
+- 完整口径见仓库根 `README.md`；公开头共十份（`CLV_Audio.h`、`CLV_Container.h`、`CLV_Export.h`、`CLV_File.h`、`CLV_Logger.h`、`CLV_Memory.h`、`CLV_Pace.h`、`CLV_Subtitle.h`、`CLV_Version.h`、`CLV_Video.h`）；四份示例直接 include 用到其中九份，唯一没直接用到的是导出宏头 `CLV_Export.h`，它由各接口头自己带进来。`container.c` 的 `info` 子命令另用 `CLV_File.h`，`video.c` 还要链一份外部播放器库 SDL3。
 
 ## 示例数据（目录名）
 
@@ -19,9 +19,10 @@
 | `core.c` | C 程序，只用核心面的四个头（`CLV_File` / `CLV_Logger` / `CLV_Memory` / `CLV_Version`），按 `#01`~`#10` 编号逐条打印「预期 / 实测 / 判定」；可执行名 `clv_demo_core` |
 | `container.c` | C 程序，容器面只用 `CLV_Container.h`（`info` 子命令读裸文件时另用了 `CLV_File.h` 的四个函数），现场写一个真 `.clv` 再读回逐条判定（含 `#04` 写方平移义务的可视行）；可执行名 `clv_demo_container` |
 | `video.c` | C 程序，双轨播放器：`CLV_Container.h` + `CLV_Video.h` + `CLV_Audio.h` + `CLV_Pace.h` 四口同开，视频轨解到平面后经 SDL3 的 IYUV 纹理直上屏幕，音频轨灌 SDL3 音频流，两边按 pts 对齐；可执行名 `clv_demo_video`，需要外部依赖 SDL3 |
+| `subtitle.c` + `subtitle_player.c` | C 程序，三轨播放：`CLV_Container.h` + `CLV_Video.h` + `CLV_Audio.h` + `CLV_Subtitle.h` + `CLV_Pace.h` 同开，视频/音频照常播，字幕流喂解析器、按视频时间布局并合成 RGBA 层，作为第二张纹理叠在视频上（SDL3，straight alpha）；可执行名 `clv_demo_subtitle` |
 | `CMakeLists.txt` | demo 的构建入口，默认不建（`CLV_BUILD_DEMOS=OFF`）。产物落 `demo_local/bin/`（**每次构建前先按清单清空该目录**），并把 `core.c` / `container.c` / `video.c` / 本手册同步一份副本到 `demo_local/src/`；示例跑出来的文件落在 `demo_local/` 根上，不跟着 `bin/` 一起被清 |
 
-三个可执行名与源文件名不同步（`clv_demo_core ← core.c`、`clv_demo_container ← container.c`、`clv_demo_video ← video.c`），配对写在 `CMakeLists.txt` 的 `add_executable` 里。
+可执行名与源文件名不同步（`clv_demo_core ← core.c`、`clv_demo_container ← container.c`、`clv_demo_video ← video.c`、`clv_demo_subtitle ← subtitle.c + subtitle_player.c`），配对写在 `CMakeLists.txt` 的 `add_executable` 里。
 
 **运行位置是 `demo_local/`，不是 `demo_local/bin/`**：可执行名带 `bin/` 前缀跑（`./bin/clv_demo_core.exe`），
 示例自己生成的临时文件与 `.clv` 就落在 `demo_local/` 根上。代码里这些路径一律写成 `./xxx`，明确是「当前工作目录下的」；
@@ -180,8 +181,8 @@ CLV_Free(q);
 `#10` 之外另有一项**人工判定**：直接拿十六进制编辑器打开产出的 `.clv`，或跑 `info` 子命令。
 
 **子命令 `info <path>`**：只读并 dump 结构（头 / 描述符 / 扩展块 / 索引 / 读方统计 / 帧列表），不写文件。
-它同时是 `assets/fixtures/` 三份素材的交叉验证入口——那三份由 `scripts/gen_fixtures.py`（独立 Python 实现）写出，
-能被本库的读方正确解析，说明两侧都没偏离规范：
+它同时是 `assets/fixtures/` 由 `scripts/gen_fixtures.py`（独立 Python 实现）写出的那几份确定性素材的交叉验证入口——
+它们都能被本库的读方正确解析，说明两侧都没偏离规范：
 
 ```bash
 # info 是只读子命令，不写文件，所以从仓库根跑没问题
@@ -204,8 +205,9 @@ CLV_Free(q);
 
 - **依赖**：SDL3（`python scripts/install_third_party.py` 装进 `build/_install`）。配置期开了 `CLV_BUILD_DEMOS=ON` 而找不到 SDL3 会直接失败，不再静默跳过；`SDL3.dll` 随构建投进 `demo_local/bin/`，与 exe 同目录。
 - **画面路**：纹理格式 `SDL_PIXELFORMAT_IYUV`，`SDL_UpdateYUVTexture` 把解码器给的三平面与三个行距直投渲染器——库里已有 `CLV_VideoFrameToRGB24`，本示例**故意不用它**，用它就是另一条路。
-- **时钟口径**：不在本示例里写，全在库侧节器件（`include/CLV_Pace.h` / `src/pace/`）——主时钟取音频设备侧的已消费量（`SDL_GetAudioStreamQueued` 反推），锚点之外按单调墙钟线性外推；四个阈值都是 `1/fps` 的倍数：对齐带 ±半周期、等待阈半周期、丢帧阈一整个周期，另两道容量缺省 = 背压 1000 ms、预灌 200 ms 当量字节。示例只把设备的排队量与放开/按住两件事告诉库，然后执行它交回的「等 / 出画 / 丢」。
+- **时钟口径**：不在本示例里写，全在库侧节器件（`include/CLV_Pace.h` / `src/pace/`）——主时钟 = 消费端报告的「已消费媒体时间」，库不外推、不封顶、不阻尼，只保证单调。示例做的事：把设备的排队量交出去、把设备真取走的量（已喂 − 仍排队）折算成媒体时间**报告**回节器件、执行它交回的「等 / 出画 / 丢」，再把它建议的重采样倍率与丢 / 重帧提示落到 SDL 与视频腿上。阈值都是 `1/fps` 的倍数：对齐带 ±半周期、等待阈半周期、丢帧阈 = 一整个周期 + 实测最大报告步长；三道容量缺省 = 背压 1000 ms、预灌 200 ms、积压上界 2000 ms 当量字节。
   背压缺省为什么是 1000 ms 而不是更小的数：喂闸一等等住的是整条读包腿，实测一份素材的音频排队自然峰值 598 ms，500 ms 的阈值正卡在峰值上，一堵 90~114 ms 醒来连丢三帧 —— 阈值低于自然峰值时丢帧是闸造成的，跟解码成本无关。
+  **供给腿不能被出画腿按住**：主钟只跟报告走，等待期间不再读包就不再喂音频，设备取不到新数据、报告就停，等下去是死锁。所以本示例在每一次等待里都往前读一包（最多领先已出画帧三包，多的帧留在解码器等下一次取帧），并照常报告。
 - **单轨不算过**：只出画面或只出声音都判负，末行 `DEMO_VIDEO_DONE shown=… dropped=… repeated=…` 只在两轨都跑完时打印，`shown` 应等于流里的帧数、`dropped` 为 0。
 - **每帧一行读数**：`f`（帧号）/ `vpts`（视频 pts）/ `aclock`（音频钟）/ `dev`（两者之差，正 = 视频早、负 = 视频迟）/ `asample`（音频样本位置）/ `dec` `pres`（解码与呈现两腿的累计均值）/ `drop` `repeat`（丢帧与等待期重复计数）。收口行另给对齐带内 / 带外 / 丢帧的三档分布与末帧双钟读数。
 - **交互**：`ESC` 或 `q` 退出，`SPACE` 暂停续播；`--loop` 循环播放（每趟重开读方、复位两条解码器、清空并暂停音频流，预灌完再放开设备），`--passes N` 跑满 N 趟自己收（循环满 N 趟的验收形要能不碰窗口就停下），`--topmost` 把窗口置前（截图取证用）。
@@ -217,16 +219,31 @@ CLV_Free(q);
   本机实测（Release + `/arch:AVX2`，`--passes 2`）：第 1 趟 解码 10.79 / 呈现 1.25 / 睡 17.53 / 读包 1.36 / 喂音频 0.06 / 背压 0.00 / 其余 2.04 ms/帧，第 2 趟 10.93 / 1.34 / 17.20 / 1.42 / 0.06 / 0.00 / 2.09，两趟各 105 帧、丢 0、背压堵 0 次。**不带 `/arch:AVX2` 时**同一素材、同样两趟仍是 105 帧 / 丢 0 / 堵 0，只是解码腿约 **18 ms/帧**（其余判据不变）——上面那组逐腿读数只在该旗标下复现。
   **同一份素材在 Debug 构型下这条判据不成立**：实测解码腿 86.84 / 89.44 ms/帧（帧预算 33.33 ms），105 帧里丢 101 / 102，退出码仍 0、音轨照常播 —— 这是**吞吐不达**而不是同步口径错，节器件在追不上时按丢帧降级正是它的职责。
   所以这一条判据离开构型就没有意义，读它之前先读构建行。
-- **`--probe` 打点**：同步偏差要归因时用这条，别靠猜。它另打两类读数——① 趟首五段（进趟 / 重开读方 / 复位+清流+暂停 / 预灌完 / 空跑呈现 / 放开设备）各自的累计与本段耗时，加那一刻音频流的排队、已消费与外推锚龄；② 每帧同样的四个量并加趟龄。
-  「钟位凭空超前」由此分成两种，一眼分开：**已消费本身就大** = 设备真播掉了这么多（起钟太晚）；**已消费小而锚龄大** = 线性外推把它算多了（锚点没跟上一趟的起点）。这两列要成对打才有用：钟位是「已消费量」与「锚点之后的线性外推量」两项之和，单给一项就分不开这两种成因。节器件的口径写在 `include/CLV_Pace.h` 的头注里——预灌期与暂停期不外推、那一段也不计入已消费，成对读数正是把这两条约束各自核一遍。
+- **`--probe` 打点**：同步偏差要归因时用这条，别靠猜。它另打两类读数——① 趟首每段（进趟 / 重开读方 / 复位+清流+暂停 / 预灌完 / 空跑呈现 / 放开设备）各自的累计与本段耗时，加那一刻音频流的排队、已消费与折算出的钟位；② 每帧同样的几个量并加趟龄。
+  「钟位凭空超前」由此分成两种，一眼分开：**已消费本身就大** = 设备真播掉了这么多（起钟太晚，零点没定在放开那一刻）；**已消费小但钟位大** = 报告口报了一个不属于设备消费的量（喂进去的字节被当成了取走的）。这两列要成对打才有用：钟位是「已消费量」减「起播零点」，单给一项就分不开这两种成因。节器件的口径写在 `include/CLV_Pace.h` 的头注里——预灌期与暂停期都没有报告、那一段也不计入钟位，成对读数正是把这两条约束各自核一遍。
 - **它不写文件**：跑完不在 `demo_local/` 根留任何东西，清账口径只涉及前两个示例。
+
+## 字幕三轨播放器示例（subtitle.c + subtitle_player.c，1 个程序 / 一条管线判据）
+
+放一份**同时含视频轨、音频轨与字幕轨**的 `.clv` 进去，画面与声音照常出，字幕层叠在画面之上。它演示的是播放器侧的第四件事——**字幕面给的出参够不够用**：解析器只出块与文本行的视图，渲染器只出一张 RGBA 字幕层，库里既不混合也不上屏，混合与上屏都在本示例里做。
+
+- **依赖**：SDL3，与双轨那一份同一条口径（`build/_install`，`SDL3.dll` 随构建投进 `demo_local/bin/`）。
+- **入参**：`./bin/clv_demo_subtitle.exe [三轨文件] [另指字幕文件]`，两个都可省——默认读 `../assets/fixtures/demo_avs_360p_q32.clv`（从 `demo_local/` 起），仓库根起法 `assets/fixtures/demo_avs_360p_q32.clv` 也认。第二个入参是把字幕流换进另一份文件，用于单独验字幕腿。
+- **字幕腿**：字幕流的每个包按到达序喂 `CLV_SubtitleParserFeed`（dts 由本示例逐包累加，只有字幕流累加）；每个出画时刻先清空字幕层，再把时间窗内的每个块各调一次 `CLV_SubtitleRendererLayout`，然后一次 `CLV_SubtitleRendererRender` 画整层，`SDL_UpdateTexture` 上成一张 RGBA 纹理，叠在视频纹理之后。全局样式块（`ext_type = 4`）经 `CLV_SubtitleRendererSetStyleBlock` 进覆盖链。
+- **字体**：`CLV_SubtitleRendererSetFontDir` 指 `assets/fonts/NotoSansCJKsc`（CJK 基准族）与 `assets/fonts/noto-emoji`（彩色位图 emoji），`demo_local/` 起法与仓库根起法各指一次，共四次——该口可重复调用、按加入顺序扫描。字体不在位时渲染器落降级面，出画仍成立但字形不对，所以这两目录是**目视抽查的前提**，不是可选件。
+- **帧率**：从 PTS 扫描推得（`fps` 行打印实际值），不拿容器的时间基当帧率——时间基是 `1/1081080000`，与帧率无关。
+- **时钟口径**：与双轨播放器同一条，全在库侧节器件；等待期间的供给腿也同一条（往前读一包并照常报告）。差别只在执行策略：节器件判 `DROP` 这一路本示例不执行（字幕要连着走），执行侧的丢 / 重帧提示照做——`shown` 照常推进，字幕时间不受影响。
+- **判据**：末行 `DEMO_SUBTITLE_DONE shown=… dropped=… frames=… blocks=… glyphs=…`，`frames` 等于流内帧数、`dropped` 为 0、`blocks` 与 `glyphs` 为正才算过；退出码同判据。
+  `shown` 数是**字幕层出画的帧数**，不是视频帧数：它等于 `frames` 减去执行侧按 `drop_dup_hint` 削掉的帧，所以不再要求 `shown == frames`。少一帧 `glyphs` 就少那一帧字幕层的字形数（本版实测两次差值都是 9，即落在 9 个字形那一块「Hello CLV」的窗口里）。收口前的 `[核对]` 行给逐项读数：三轨包数、块数与行数、视频呈现帧数、字幕层出画帧数、字形数与墙钟时长。
+- **抽查件**：第 5 / 45 / 80 呈现帧各落一张 BMP 到 `demo_shots/`（`sub_0005.bmp` 等），对着 `[字幕] N 块 / M 行` 的读数看字形与位置——本版实测三块分别落在 5 s / 45 s / 80 s 附近，画面依次是拉丁文一行、中文一行、带彩色 emoji 的一行。
+- **它不写文件**（除 `demo_shots/` 的抽查件），跑完不在 `demo_local/` 根留东西。
 
 ## 操作
 
-1. **适用范围**：三个示例都只用 `include/` 下的公开头——公开头共九份（`CLV_Audio.h`、`CLV_Container.h`、`CLV_Export.h`、`CLV_File.h`、`CLV_Logger.h`、`CLV_Memory.h`、`CLV_Pace.h`、`CLV_Version.h`、`CLV_Video.h`）；三份示例直接 include 用到其中八份，唯一没直接用到的是导出宏头 `CLV_Export.h`，它由各接口头自己带进来。程序按 C 编译；播放器额外链一份外部 SDL3。
+1. **适用范围**：四个示例都只用 `include/` 下的公开头——公开头共十份（`CLV_Audio.h`、`CLV_Container.h`、`CLV_Export.h`、`CLV_File.h`、`CLV_Logger.h`、`CLV_Memory.h`、`CLV_Pace.h`、`CLV_Subtitle.h`、`CLV_Version.h`、`CLV_Video.h`）；四份示例直接 include 用到其中九份，唯一没直接用到的是导出宏头 `CLV_Export.h`，它由各接口头自己带进来。程序按 C 编译；播放器额外链一份外部 SDL3。
 2. **工程设置**：需要 CMake ≥ 3.16、Ninja、MSVC x64 环境；两个开关——`CLV_BUILD_DEMOS=ON` 建示例，`CLV_LOGGER_USE_SPDLOG=ON` 才有日志输出（`clv_demo_core` 的 `#02` 日志过滤项要用它）。开了 `CLV_BUILD_DEMOS=ON` 就必须能找到 SDL3，找不到是配置期硬失败。
-3. **安装步骤**：先 `python scripts/install_third_party.py` 把第三方装到 `build/_install`，再配置与构建（命令见下面「开发」），产物落在 `demo_local/bin/` 下的 `clv_demo_core.exe`、`clv_demo_container.exe` 与 `clv_demo_video.exe`（播放器旁边还有同目录的 `SDL3.dll`，Windows 按 exe 同目录找 DLL）。
-4. **验收**：在 `demo_local/` 目录下依次执行 `./bin/clv_demo_core.exe` 与 `./bin/clv_demo_container.exe`，它们生成的文件都建在当前工作目录（也就是 `demo_local/` 根）；播放器要吃一份**双流** `.clv`，直接跑 `./bin/clv_demo_video.exe <文件.clv>`，它自己不生成文件。
+3. **安装步骤**：先 `python scripts/install_third_party.py` 把第三方装到 `build/_install`，再配置与构建（命令见下面「开发」），产物落在 `demo_local/bin/` 下的 `clv_demo_core.exe`、`clv_demo_container.exe`、`clv_demo_video.exe` 与 `clv_demo_subtitle.exe`（播放器旁边还有同目录的 `SDL3.dll`，Windows 按 exe 同目录找 DLL）。
+4. **验收**：在 `demo_local/` 目录下依次执行 `./bin/clv_demo_core.exe` 与 `./bin/clv_demo_container.exe`，它们生成的文件都建在当前工作目录（也就是 `demo_local/` 根）；播放器要吃一份**双流** `.clv`，直接跑 `./bin/clv_demo_video.exe <文件.clv>`；字幕管线默认读 `../assets/fixtures/demo_avs_360p_q32.clv`（视频 + 音频 + 字幕三轨同文件），也可 `./bin/clv_demo_subtitle.exe [三轨文件] [另指字幕文件]`；判据是退出码 0、末行 `DEMO_SUBTITLE_DONE shown=… dropped=0 …`，并在 `demo_shots/` 落第 5 / 45 / 80 帧的 BMP 供目视抽查。两份播放/管线示例都不生成文件。
 5. **确认**：逐行对照前两个程序各自 `#01`~`#10` 的 `expect` 与 `actual`，末行都应是「自动判定失败 0 项」，退出码 0。
    核心面的 `#02`（有没有 DEBUG 行）与 `#10`（中文名文件字形）含人工判定；容器面的 `#04` 会额外打印一行平移算式（源 dts −40 → 落盘 0，`pts_delta = 80`），`#10` 之外的「结构是否顺眼」为人工判定。
    播放器的人工判定是「画面在动、声音在响、口型与画面对得上」，自动判据是末行 `DEMO_VIDEO_DONE` 的 `shown` 等于流内帧数且 `dropped = 0`，退出码 0

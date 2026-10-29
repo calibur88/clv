@@ -1,0 +1,194 @@
+# assets/fonts 素材溯源
+
+本目录登记字幕渲染的测试 / 参考字体。字体件来自仓库外，登记来源、整件 SHA-256、字体元数据与许可；
+渲染用例按这里的哈希确认用的是同一份字节，不从文件名猜字重或 family。
+本文件登记三份字体，各一节：第一件 `NotoSansCJKsc/` = 字幕渲染判据的基准族；第二件 `NotoNaskhArabic-v2.021/` = 阿语（RTL）面的**第二份基准**，补第一份缺的脚本覆盖；第三件 `noto-emoji/` = 表情符号（emoji）面的取样件，同样补第一份缺的脚本覆盖（它不是基准族，与第一份零重叠）。
+
+## 来源与版本
+
+- 下载地址：`https://github.com/notofonts/noto-cjk/releases/download/Sans2.004/08_NotoSansCJKsc.zip`
+- 发布标签：`Sans2.004`
+- 字体内部版本：`Version 2.004;hotconv 1.0.118;makeotfexe 2.5.65603`（7 件逐件实测，name ID 5 同值）
+- 入库日期：2026-10-22
+- 入库对象：`NotoSansCJKsc/` 下 7 个 OTF + `LICENSE`；源 zip 未留，按解出件登记
+- 许可：SIL Open Font License 1.1；`LICENSE` 4 301 B / SHA-256 `6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2`
+- 版权行：`© 2014-2021 Adobe (http://www.adobe.com/).`（各 OTF name 表 0 号记录）
+- 入库件按本表 SHA-256 登记；本版未保留源 zip，**未做与 zip 内件的逐字节对平**（来源凭据 = 上面的发布 URL 与发布标签）；本仓未改名、未重打包、未子集化。
+
+## 逐件清单
+
+| 文件 | 字节数 | family（name ID 1） | subfamily（name ID 2） | OS/2 usWeightClass | SHA-256 |
+|---|---|---|---|---|---|
+| `NotoSansCJKsc-Thin.otf` | 14 896 688 | `Noto Sans CJK SC Thin` | `Regular` | 100 | `89bb8179d1b285ac0ca236b37ff29929ee3cc4526048dc11630a55728063e5ba` |
+| `NotoSansCJKsc-Light.otf` | 16 329 648 | `Noto Sans CJK SC Light` | `Regular` | 300 | `e78bbbe1573bbb006156c1198f5c8cd6329470cb6e0b6702c7a3c83913db4abf` |
+| `NotoSansCJKsc-DemiLight.otf` | 16 414 760 | `Noto Sans CJK SC DemiLight` | `Regular` | 350 | `4600700d1b10c8e82074de7c91fa60d2ff5d0a7b9588edea6ab0929424b1699f` |
+| `NotoSansCJKsc-Regular.otf` | 16 437 364 | `Noto Sans CJK SC` | `Regular` | 400 | `2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b` |
+| `NotoSansCJKsc-Medium.otf` | 16 523 632 | `Noto Sans CJK SC Medium` | `Regular` | 500 | `ca094f6b0001fb048ca39ddd797a0cdb0179e1e55c6561e111c49c3e6a61d7b7` |
+| `NotoSansCJKsc-Bold.otf` | 17 002 248 | `Noto Sans CJK SC` | `Bold` | 700 | `b5f0d1a190a7f9b43c310a8850630af12553df32c4c050543f9059732d9b4c0a` |
+| `NotoSansCJKsc-Black.otf` | 17 797 908 | `Noto Sans CJK SC Black` | `Regular` | 900 | `2267c4a0312d267dff8c0d1609948f7d949a3da8be3e126f5e2690cb9cc883b4` |
+| `LICENSE` | 4 301 | — | — | — | `6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2` |
+
+合计 **115 406 549 B = 110.1 MiB**；最大单件 `NotoSansCJKsc-Black.otf` 17 797 908 B = 17.0 MiB。
+单件均低于 GitHub 的 50 MiB 警告线；按本仓「不开 LFS」的入库口径以普通 blob 入库。
+
+## 用途与判据
+
+- 用途：字幕渲染器的**测试 / 参考字体**，固定 CJK 字形与布局；不是库的运行时依赖。产品路径仍由宿主 / CAL 的系统字体解析（Windows DirectWrite），`font_dir` 指到本目录时才按文件建 face。
+- 默认：`NotoSansCJKsc-Regular.otf`（family `Noto Sans CJK SC`，weight 400）作默认测试字面；`Bold`（weight 700）作粗体对照；7 件覆盖 100 / 300 / 350 / 400 / 500 / 700 / 900。
+- **family 名不全是同一个**：Regular / Bold 的 family = `Noto Sans CJK SC`；Thin / Light / DemiLight / Medium / Black 的 family 名带字重后缀（见上表）。测试的 `font-family` 链与 `font-weight` 选择按 family/subfamily + `usWeightClass` 映射，不按文件名猜。
+- 许可：OFL 1.1，允许随软件分发 / 嵌入；`LICENSE` 随目录入库；字体件不改名、不修改。
+- 像素 / 布局判据：同平台同字体同 CAL 构型做 golden；跨平台只断布局 / bbox / 覆盖率，像素差异按字幕规范「渲染差异声明」一节允许。哈希只证明「用的是同一份字体字节」，不证明跨平台像素一致。
+
+## 复现 / 校验
+
+1. 从上面的 URL 下载 `08_NotoSansCJKsc.zip`，解出 `NotoSansCJKsc/` 下的 7 个 OTF 与 `LICENSE`。
+2. 校验整件哈希（Git Bash / MSYS2）：
+
+```
+sha256sum assets/fonts/NotoSansCJKsc/*.otf assets/fonts/NotoSansCJKsc/LICENSE
+```
+
+3. 与上表逐件对平；任一不符即不是登记件，先查下载源，不要把不符件接入渲染用例。
+4. 元数据（family / subfamily / version / usWeightClass）用 `fontTools 4.66.1` 的 `TTFont` 读 `name` 与 `OS/2` 表；版本行与上表对平。
+
+
+---
+
+## 第二件 · Noto Naskh Arabic（阿语取样字体）
+
+> 与上面那份互不替代：Noto Sans CJK SC 是**渲染判据的基准族**，这一份是阿语（RTL）文本的第二份基准，补第一份没有的脚本覆盖。登记日期 2026-10-22。
+
+### 来源与版本
+
+- 下载地址：`https://github.com/notofonts/arabic/releases/download/NotoNaskhArabic-v2.021/NotoNaskhArabic-v2.021.zip`
+- 仓库 / 发布标签：`notofonts/arabic` · `NotoNaskhArabic-v2.021`（发布名与标签同名）
+- 发布件：`NotoNaskhArabic-v2.021.zip` **2 922 060 B**，SHA-256 `6c050ab9bd087d69b733c505a7576e60c528c2f33cd7b91005a5bd7da4514032`
+  （发布页登记：`published_at = 2026-01-16T09:25:27Z`，资产 `updated_at = 2026-01-16T09:25:29Z`）
+- 字体内部版本：静态件 name ID 5 = `Version 2.021`；ttfautohint 那批 = `Version 2.021; ttfautohint (v1.8.4.16-eb64)`
+- 入库日期：2026-10-22；入库目录：`assets/fonts/NotoNaskhArabic-v2.021/`
+- **源 zip 未入库**（只按整件哈希登记），下载件与目录做过**内件逐字节对平**：zip 条目 30 / 磁盘件 30，`磁盘有 zip 无 = 0`、`zip 有磁盘无 = 0`、`内容不同 = 0` ⇒ **30/30 逐字节一致**。上面那份 Noto Sans CJK SC 是"zip 未留、未做内件对平"，这一份是对平过的，两份登记的可信度不同档，引用时别混。
+- 许可：SIL Open Font License 1.1，随件 `OFL.txt` 4 382 B，SHA-256 `a7a5a25eb188bf1cd96982030d53e23c33485c69b1044a562254226857ee13af`
+- 版权行（name ID 0）：`Copyright 2022 The Noto Project Authors (https://github.com/notofonts/arabic)`
+- 附带文档件：`ARTICLE.en_us.html` / `DESCRIPTION.en_us.html` / `AUTHORS.txt` / `CONTRIBUTORS.txt` / `OFL.txt`，原样入库；本仓未改名、未重打包、未子集化
+
+### 逐件清单
+
+这份发布把**同一字面出成多种构建**：`full/`（含 variable 与 slim-variable）、`unhinted/`、`hinted/`、`googlefonts/`。按 (family, subfamily, usWeightClass) 聚合：Regular 位 **10 份**、Bold / Medium / SemiBold 各 **5 份**不同哈希，共 25 份。全部登记；测试路径只取下面点名的两份，其余留档。**这些不是重复件、也不是漏删**，但也别按文件名当不同字面用。
+
+| 文件（相对 `NotoNaskhArabic-v2.021/`） | 字节 | family | subfamily | usWeightClass | 字形数 | SHA-256 |
+|---|---|---|---|---|---|---|
+| `NotoNaskhArabic/full/otf/NotoNaskhArabic-Regular.otf` | 156 216 | `Noto Naskh Arabic` | `Regular` | 400 | 1719 | `824336d65f85f1d5f0065c2dbcad7110d4788905ce0474f5b1cbee3da99acd66` |
+| `NotoNaskhArabic/full/otf/NotoNaskhArabic-Bold.otf` | 158 768 | `Noto Naskh Arabic` | `Bold` | 700 | 1719 | `8886edc6a5d881433a17e8167409aef38e7125f42b6b25e984535dc01103a993` |
+| `NotoNaskhArabic/full/otf/NotoNaskhArabic-Medium.otf` | 181 912 | `Noto Naskh Arabic Medium` | `Regular` | 500 | 1719 | `b68967f90f4298ab35d578bf51c4e4135728aa2bc16aba47ca4825ee2f8aa00a` |
+| `NotoNaskhArabic/full/otf/NotoNaskhArabic-SemiBold.otf` | 181 788 | `Noto Naskh Arabic SemiBold` | `Regular` | 600 | 1719 | `462e4ef67f095b46b93915d1fc1d6a1a5b90549993f6d923493f2fdb884d186e` |
+| `NotoNaskhArabic/full/ttf/NotoNaskhArabic-Regular.ttf` | 291 980 | `Noto Naskh Arabic` | `Regular` | 400 | 1719 | `c9a039ce48a477243c1eb7d561b13de115cfd651d8a83fa42e2f4d63c2e11b00` |
+| `NotoNaskhArabic/full/ttf/NotoNaskhArabic-Bold.ttf` | 325 232 | `Noto Naskh Arabic` | `Bold` | 700 | 1719 | `d328b92b6bb762fd61d6438dddb7b00dd0663115afb292a358101808efe117b2` |
+| `NotoNaskhArabic/full/ttf/NotoNaskhArabic-Medium.ttf` | 310 868 | `Noto Naskh Arabic Medium` | `Regular` | 500 | 1719 | `3e876c8262142470384d00644c02689a8a6620a666ef071555414e889267c687` |
+| `NotoNaskhArabic/full/ttf/NotoNaskhArabic-SemiBold.ttf` | 311 392 | `Noto Naskh Arabic SemiBold` | `Regular` | 600 | 1719 | `8ce9659622d3479744b2b5404f8caee17e956d25d672b57d160d7b0e8207c52a` |
+| `NotoNaskhArabic/full/variable-ttf/NotoNaskhArabic[wght].ttf` | 307 300 | `Noto Naskh Arabic` | `Regular` | 400 | 1719 | `abaf33ed74eafb9e7f5ed7a82e72d532f534d0c36c80efd63619a0106c98f5b6` |
+| `NotoNaskhArabic/full/slim-variable-ttf/NotoNaskhArabic[wght].ttf` | 309 048 | `Noto Naskh Arabic` | `Regular` | 400 | 1712 | `4d98c48141e86fcba70a12386a0e0675c0c46806593022635b93a6b20fb63f99` |
+| `NotoNaskhArabic/unhinted/otf/NotoNaskhArabic-Regular.otf` | 129 440 | `Noto Naskh Arabic` | `Regular` | 400 | 1415 | `06f5e69cffb92bb0e08564718cd7ac2353a6c9305782f41b07b9e6ee3e3f4583` |
+| `NotoNaskhArabic/unhinted/otf/NotoNaskhArabic-Bold.otf` | 129 048 | `Noto Naskh Arabic` | `Bold` | 700 | 1415 | `595ed7ef1afed437ad1d8d6c548c18e617de2195a1ca0c1d8ed74333d018e7fe` |
+| `NotoNaskhArabic/unhinted/otf/NotoNaskhArabic-Medium.otf` | 150 576 | `Noto Naskh Arabic Medium` | `Regular` | 500 | 1415 | `8d42c315711e17a5b5e9a58d8b0ee93aae2263c1e5537f1a25c81c949411a0e6` |
+| `NotoNaskhArabic/unhinted/otf/NotoNaskhArabic-SemiBold.otf` | 150 448 | `Noto Naskh Arabic SemiBold` | `Regular` | 600 | 1415 | `af83ab6245954bfc552082ada0a6d967b34d0c7e43da42300caabf6758b3a126` |
+| `NotoNaskhArabic/unhinted/ttf/NotoNaskhArabic-Regular.ttf` | 158 580 | `Noto Naskh Arabic` | `Regular` | 400 | 1415 | `c34fdbd98af4dbc45ca192a23d2eeb77032add83086f5fe32957d23b3f36b221` |
+| `NotoNaskhArabic/unhinted/ttf/NotoNaskhArabic-Bold.ttf` | 158 172 | `Noto Naskh Arabic` | `Bold` | 700 | 1415 | `380ac34b249d336e1a43c21053df440594e1e3db8f75fabd4d85b649ca1ea4c6` |
+| `NotoNaskhArabic/unhinted/ttf/NotoNaskhArabic-Medium.ttf` | 157 872 | `Noto Naskh Arabic Medium` | `Regular` | 500 | 1415 | `3befc6c9270aa30b6332cd90c5eeb0c9cf801f5e146fca317704585e55c6981c` |
+| `NotoNaskhArabic/unhinted/ttf/NotoNaskhArabic-SemiBold.ttf` | 157 868 | `Noto Naskh Arabic SemiBold` | `Regular` | 600 | 1415 | `85c6a3c50b19179fe26f550d4e9a658cd8f0e74b25816e6da46b2ba8cdbc7673` |
+| `NotoNaskhArabic/unhinted/variable-ttf/NotoNaskhArabic[wght].ttf` | 253 880 | `Noto Naskh Arabic` | `Regular` | 400 | 1415 | `7b81922a002a54457b75d6df7199fc6fda50a138a98c37b707b81422a9fe8bc1` |
+| `NotoNaskhArabic/unhinted/slim-variable-ttf/NotoNaskhArabic[wght].ttf` | 254 944 | `Noto Naskh Arabic` | `Regular` | 400 | 1408 | `6d5f74a8c0e1b0e54ae876f0a287690642a1a6c3e84bdcf68ff467f24d799edd` |
+| `NotoNaskhArabic/hinted/ttf/NotoNaskhArabic-Regular.ttf` | 247 336 | `Noto Naskh Arabic` | `Regular` | 400 | 1415 | `6f0a92031367b2f5a2078fe9d24f3433122b61a0bad57c423aad8f3c39aa2e6e` |
+| `NotoNaskhArabic/hinted/ttf/NotoNaskhArabic-Bold.ttf` | 279 468 | `Noto Naskh Arabic` | `Bold` | 700 | 1415 | `04017b0ccdd1156dcde3bc386734c1b03165261762f16a025c8afc9088ae76e9` |
+| `NotoNaskhArabic/hinted/ttf/NotoNaskhArabic-Medium.ttf` | 264 216 | `Noto Naskh Arabic Medium` | `Regular` | 500 | 1415 | `ab1b4aa0f0856f0a722d229d5cddd465012c3acd11e22fd9512682098b7a66dc` |
+| `NotoNaskhArabic/hinted/ttf/NotoNaskhArabic-SemiBold.ttf` | 265 016 | `Noto Naskh Arabic SemiBold` | `Regular` | 600 | 1415 | `76616e51f5ff1cf4d81a14df6049646911cd4d7e568903a011711c241991624c` |
+| `NotoNaskhArabic/googlefonts/variable-ttf/NotoNaskhArabic[wght].ttf` | 307 592 | `Noto Naskh Arabic` | `Regular` | 400 | 1719 | `67b5a525a661b607971fbd3f96a81b89d3a768e74534fca84f18ac97e6fab72f` |
+
+文档件（同一 zip 内的说明与许可）：
+
+| 文件 | 字节 | SHA-256 |
+|---|---|---|
+| `ARTICLE.en_us.html` | 1 892 | `880d05c58077ff62d5cd366bd47f8c661fd878824639796bbfdf5bdb43942646` |
+| `DESCRIPTION.en_us.html` | 305 | `72b4a09327be0a37dfeba70446b80d80c9866c235febccc248259250843d55a6` |
+| `AUTHORS.txt` | 247 | `727ab5b16dd99b3615f6fc2206f75fe78ac8ce54f20818e462b872ec57161d49` |
+| `CONTRIBUTORS.txt` | 587 | `bcf0961ac04c8cbed58f30a7e4bf76e3df8603a8d64088cf4723d8cebd66b42a` |
+| `OFL.txt` | 4 382 | `a7a5a25eb188bf1cd96982030d53e23c33485c69b1044a562254226857ee13af` |
+
+合计 **5 606 373 B = 5.35 MiB**（字体 25 份 5 598 960 B + 文档 5 份 7 413 B）；最大单件 `full/ttf/NotoNaskhArabic-Bold.ttf` 325 232 B = 0.31 MiB，远低于 GitHub 的 50 MiB 警告线，按「不开 LFS」口径以普通 blob 入库。
+
+### 用途与判据
+
+- **基准族第二份**：管阿语（RTL）这一面 —— Bidi 分趟、整形按位置换字形、阿语覆盖率三件事都在它身上断。第一份对这几个码位全落 `.notdef`，没有这份就断不了。
+- **golden 的取法**：各份只出自己覆盖的脚本，**同一张 golden 不混两份字体**（两族 hinting 不同，混了就归因不到改动）；像素 golden 仍按在册哈希取，字幕规范「字体回退约定」与「测试要点」两节与本节同口径。
+- 测试路径取 **`NotoNaskhArabic/full/otf/NotoNaskhArabic-Regular.otf`**（w400）与 **`NotoNaskhArabic/full/otf/NotoNaskhArabic-Bold.otf`**（w700）—— 与 CJK 那份同取 Regular + Bold 两档、同为 OTF；`font-family: Noto Naskh Arabic` 命中，`font_dir` 指到本目录即可。
+- **GSUB 实测，判据为什么换尺子**：`full/otf/Regular` 的特性集 = `aalt ccmp dlig fina init liga locl medi ordn pnum rlig rtlm tnum`，出现的 LookupType = 1 / 2 / 3 / 4 / 5 / 6。逐条查下去：**`liga` 只有 2 条连字、`rlig` 的 11 个 lookup 里 Type-4 连字 0 条**，`lam + alef` 这一组**不做成连字字形**，而是单字置换成 `uni0644.init.rlig` + `uni0627.fina.rlig`。
+  ⇒ 判据**不能写「字形数 < 码点数」**（在这份字体上恒不成立，写出来就是假红），改成「**shaped 字形号 ≠ nominal 字形号，至少一处**」：证明整形按位置换了字形，而不是只按 cmap 取孤立形。
+- 活体读数（本机实跑：HarfBuzz 14.4.0 经 `hb-ot-font` 取度量，FreeType 2.14.3 建 face；探针件属工程过程记录，不随本目录发行）：
+  - 本族 Regular：`الله` 4 码点 → 4 字形，glyph id `81 68 70 8`，**.notdef 0**；`لا` 2 码点 → 2 字形，nominal/shaped = `66/10` 与 `8/71`，**替换生效 2 处** ⇒ 判据 PASS。
+  - 对照：基准族 `NotoSansCJKsc-Regular.otf` 同两个串全部落 `.notdef`（阿语无覆盖）⇒ 判据报「不适用」而不是「整形失败」。两份件的分工由此可分，也正是当初那条假红的根因。
+- 其它阿语特性（换行、竖排、`locl` 方言形）不在本件判据内（字幕规范「v0.2 预留」一节已归 v0.2）。
+
+### 复现 / 校验
+
+1. 从上面 URL 下载 `NotoNaskhArabic-v2.021.zip`，先验整件：大小 2 922 060 B、`sha256sum` 得 `6c050ab9bd087d69b733c505a7576e60c528c2f33cd7b91005a5bd7da4514032`。
+2. 解包后与 `assets/fonts/NotoNaskhArabic-v2.021/` 逐字节对平：本版实测 **30 条对 30 件全等**（判据见「来源与版本」倒数第 3 条）。
+3. 单件复核：`sha256sum assets/fonts/NotoNaskhArabic-v2.021/NotoNaskhArabic/full/otf/*.otf` 与「逐件清单」对平。
+4. family / subfamily / `usWeightClass` / 字形数用 `fontTools 4.66.1` 的 `TTFont` 读 `name`、`OS/2`、`maxp`；GSUB 特性与连字条目读 `GSUB.table`（本版读法与结果见「用途与判据」）。
+
+---
+
+## 第三件 · Noto Color Emoji（表情符号取样字体）
+
+> 与前两份互不替代：第一份是渲染判据的基准族，第二份补阿语（RTL），这一份补**表情符号（emoji）**那一档。登记日期 2026-10-24。
+
+### 来源与版本
+
+- 取件地址：`https://github.com/googlefonts/noto-emoji/blob/main/2D/fonts/NotoColorEmoji.ttf`（原文件 `.../raw/main/2D/fonts/NotoColorEmoji.ttf`）
+- 仓库 / 分支：`googlefonts/noto-emoji` · 分支 `main` —— **不是 release 件**，取的是分支上该路径的当前对象
+- 上游锚点（实测）：`GET /repos/googlefonts/noto-emoji/git/trees/main:2D/fonts` 列出 `NotoColorEmoji.ttf  size = 10 730 124  blob = e605743d05f261634f0b3f68a439d9b557d8f335`（同批查得分支 HEAD = `e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e`）。本地件按 git blob 算法实算得**同一个 `e605743d…f335`**、大小逐位相同 ⇒ 入库字节与仓库内件是**同一个对象**，不是「看起来一样」
+- 字体内部版本（name ID 5）：`Version 2.057;GOOG;noto-emoji:20260911:fc4ca365e7c20e78278ae702aa20434bfe704c8f`
+  - 末尾那串 40 位令牌**在公开仓库里查不到提交**（`GET /repos/.../commits/fc4ca365…` 返回 422 `No commit found`）⇒ 它是构建流水线的内部令牌，**不能当来源锚点**；来源锚点只有上面那条树条目
+- family / subfamily / PostScript 名：`Noto Color Emoji` / `Regular` / `NotoColorEmoji`
+- 版权与许可声明（name ID 0 / 7 / 13 / 14）：`Copyright 2022 Google Inc.` · `Noto is a trademark of Google Inc.` · SIL Open Font License 1.1 · `http://scripts.sil.org/OFL`
+- 入库对象：`noto-emoji/` 下 **1 份字体件 + 1 份 `LICENSE`**；本仓未改名、未重打包、未子集化
+
+### 逐件清单
+
+| 文件 | 字节数 | SHA-256 | git blob SHA1 |
+|---|---|---|---|
+| `NotoColorEmoji.ttf` | 10 730 124 | `15671215ab769fdc7162a045d56fd7d7e477c51b04e6b3c761d914d8fdd6cc44` | `e605743d05f261634f0b3f68a439d9b557d8f335` |
+| `LICENSE` | 4 301 | `6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2` | `d952d62c065f3f35fb83a173496e90b21525aef3` |
+
+- `LICENSE` 与第一件 `NotoSansCJKsc/LICENSE` **逐字节相同**（`cmp` 通过、SHA-256 同值）：两份都是 OFL 1.1 正文本身，字体专属版权行在各自的 `name` 表里、不在这份文本里。
+- 合计 10 734 425 B = 10.24 MiB，最大单件 10 730 124 B，低于 GitHub 的 50 MiB 警告线，按「不开 LFS」口径以普通 blob 入库。
+
+### 字体形态（实测读数，`fontTools 4.66.1`）
+
+| 项 | 读数 |
+|---|---|
+| sfnt 版本 | `\x00\x01\x00\x00` |
+| 表清单（sfnt 目录 **13 张**） | `CBDT CBLC GSUB OS/2 cmap head hhea hmtx maxp name post vhea vmtx` |
+| **轮廓表** | **无** —— 既无 `glyf` 也无 `CFF`；也没有 `COLR` / `CPAL` / `SVG` ⇒ 彩色只由 `CBDT` / `CBLC` 位图承载 |
+| `head.unitsPerEm` | 2 048 |
+| `maxp.numGlyphs` | 4 046 |
+| `OS/2` | version 4、`usWeightClass = 400`、`fsSelection = 0x0040`（bit6 REGULAR，bit0 ITALIC = 0） |
+| `post.italicAngle` | 0.0 ⇒ 无斜体面 |
+| `CBLC` strike | **唯一一档 109 × 109 ppem** |
+| `cmap` | 1 510 个码位；`U+1F600` / `U+1F680` / `U+1F30D` / `U+2764` 有，**`U+FE0F`、`U+4E2D`、`U+0041` 无** |
+| 区段命中 | `U+1F300..U+1FAFF` 1 207、`U+2600..U+27BF` 116、`U+1F1E6..U+1F1FF`（旗帜）26 |
+
+### 用途与判据
+
+- **用途**：表情符号面的取样件 —— 回退链走到「emoji 码位」那一档时要有真件可指，否则该档只能停在豆腐块上。它**不是基准族**：与第一份的脚本覆盖**零重叠**（拉丁 / CJK 全落 `.notdef`），拿它做 CJK 或拉丁的 golden 属于误用。
+- 三条形态后果（登记只立事实，判据待表情面开工时拍）：
+  1. **无轮廓** ⇒ 依赖 `glyf` / `CFF` 的取形路径在这件上没有输入，度量只剩 `hmtx` 的 advance 加位图自带的定位；本版**未做活体读数**，`hb-ot-font` / `hb-ft` 两条入口在这件上的行为留作表情面开工的第一手实测。
+  2. **单 strike 109 ppem** ⇒ 字号不是 109 px 时必然走缩放，位图缩放的质量档与轮廓字体不同；**跨平台像素 golden 在这件上不成立**（各平台位图缩放实现不同），判据要落在「取到同一张位图 + 缩放后包围盒」这一层。
+  3. **只有一档 Regular**（weight 400、`fsSelection` 无 ITALIC、`italicAngle = 0`）⇒ 组合选脸的 style 硬过滤对 `italic` 请求直接拒，weight 请求一律最近匹配到 400；这正是「style 给不出只准落下一档、不准静默降级」那条的现成用例材料。
+- 与前两件的分工：emoji 码位归这件、文字归前两份，**同一张 golden 不混三份字体**（口径同前两件）。
+
+### 复现 / 校验
+
+1. 拉树条目：`GET /repos/googlefonts/noto-emoji/git/trees/main:2D/fonts`，对 `NotoColorEmoji.ttf` 那行核 `size = 10 730 124` 与 `sha = e605743d05f261634f0b3f68a439d9b557d8f335`。
+2. 本地算 git blob：`sha1("blob " + 字节数 + "\0" + 内容)` ⇒ 与上一步同值即「同一对象」；再 `sha256sum` 对「逐件清单」。
+3. 形态复核：`fontTools` 读 `name` / `OS/2` / `post` / `maxp` / `head` / `cmap`；strike 读 `CBLC.strikes[*].bitmapSizeTable` 的 `ppemX` / `ppemY`；表清单里确认**没有** `glyf` / `CFF` / `COLR` / `CPAL` / `SVG`。
+   表数要按 `TTFont.reader.tables`（sfnt 目录，**13 张**）数，**不要按 `TTFont.keys()`**（14 项）—— 后者多一个合成伪表 `GlyphOrder`，它不是 sfnt 表。
+4. 分支件会随时间变：若哪天树条目的 blob 变了，本节的哈希与「同一对象」结论同时作废，**按新对象另起一节登记**，不改本节的值。

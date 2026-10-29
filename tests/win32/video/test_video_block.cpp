@@ -361,17 +361,16 @@ TEST(BlockCarrier, SizeMismatchAndOutOfWindowCoefficientsAreRejected)
 
 TEST(BlockCarrier, RoundingFormulaMatchesTheSpec)
 {
-	// f = (Y >= 0) ? floor(Y + 0.5) : ceil(Y - 0.5)     四舍五入、半程离零
-	EXPECT_EQ(RoundResidual(0.0), 0);
-	EXPECT_EQ(RoundResidual(0.49), 0);
-	EXPECT_EQ(RoundResidual(0.5), 1);	 // 半程离零（不是就近偶）
-	EXPECT_EQ(RoundResidual(-0.5), -1);
-	EXPECT_EQ(RoundResidual(-0.49), 0);
-	EXPECT_EQ(RoundResidual(127.5), 128);
-	EXPECT_EQ(RoundResidual(-127.5), -128);
-	// 反变换输出恒是「整数 ÷ 64」，故分母是 64 的倍数时精确可表示
-	EXPECT_EQ(RoundResidual(static_cast<double>(4096) / 64.0), 64);
-	EXPECT_EQ(RoundResidual(static_cast<double>(-4096) / 64.0), -64);
+	// f = round(b / 64)，四舍五入、半程离零（b 是反变换的整数出口）
+	EXPECT_EQ(RoundResidual(0), 0);
+	EXPECT_EQ(RoundResidual(31), 0);	// 31/64 = 0.484375 → 0
+	EXPECT_EQ(RoundResidual(32), 1);	// 32/64 = 0.5 → 1，半程离零（不是就近偶）
+	EXPECT_EQ(RoundResidual(-32), -1);
+	EXPECT_EQ(RoundResidual(-31), 0);
+	EXPECT_EQ(RoundResidual(8160), 128);	// 127.5 → 128
+	EXPECT_EQ(RoundResidual(-8160), -128);
+	EXPECT_EQ(RoundResidual(4096), 64);
+	EXPECT_EQ(RoundResidual(-4096), -64);
 	std::cout << "舍入式：半程离零（0.5 → 1、-0.5 → -1），非就近偶\n";
 }
 

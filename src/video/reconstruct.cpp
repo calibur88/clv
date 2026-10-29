@@ -112,9 +112,8 @@ namespace clv
 			}
 
 			/* 一行八道收尾：舍入 → 夹残差域 → 加预测 → 夹像素域 → 窄成 8 字节直接落平面的一行。
-			 * 舍入走 int32 而不是 double：变换输出 b 恒是整数，y = b / 64 在双精度里精确可表示，
-			 * 于是 floor(y + 0.5) = (b + 32) >> 6、ceil(y − 0.5) = (b + 31) >> 6（负道先补 63 再算术右移），
-			 * 与 RoundResidual 逐位同值，且 b 在界内时两边都不溢出。
+			 * 舍入是整数式：b ≥ 0 用 (b + 32) >> 6，b < 0 用 -(((-b) + 32) >> 6)，
+			 * 与 RoundResidual 是同一个式子的两个写法，逐位同值；b 在界内时两边都不溢出。
 			 * 窄化两条 packus 的饱和都不参与：夹完恒在 [0, 255]。 */
 			inline void RoundStoreRow8(__m256i b, const uint8_t* pred, uint8_t* dst) noexcept
 			{
@@ -283,8 +282,9 @@ namespace clv
 		 * 第二级域：反量化后系数夹 ±T_max，帧内 ±8192 / 帧间 ±16320，界由 reconstruct.h 单点派生。
 		 * 第三级域：反变换 + 舍入后夹 [−2^bpp, 2^bpp − 1]，8-bit = [−256, 255]。
 		 * 第四级域：加预测后夹 [0, 2^bpp − 1]，8-bit = [0, 255]。
-		 * AVX2 档里反变换在 int32 域做完（见 Fwht8），标量档仍经 InverseHadamard8 的 double 出口，
-		 * 两边逐位同值的依据写在 Fwht8 与 RoundStoreRow8 的注释里。 */
+		 * 反变换与舍入全在 int32 域：向量化支是 Fwht8 + RoundStoreRow8，标量支是
+		 * InverseHadamard8 + RoundResidual，两边的偏置与移位同式 ⇒ 逐位同值；构建不带向量化支时
+		 * 走的也是这一条标量整数式，没有第二条浮点实现。 */
 		void ReconstructBlockToPlane(const int32_t qf[kBlockCoefs], uint8_t q, bool intra,
 									 const uint8_t pred[kBlockCoefs], const PlaneView& dst, uint32_t plane, uint32_t px,
 									 uint32_t py)
@@ -303,8 +303,8 @@ namespace clv
 				if (v > lim) v = lim;
 				f2[i] = v;
 			}
-			double y[kBlockCoefs];
-			InverseHadamard8(f2, y);
+			int32_t b[kBlockCoefs];
+			InverseHadamard8(f2, b);
 			/* 标量支的收尾刻意写成「平铺一遍 + 按行拷」两段，而不是逐行嵌套：
 			 * 平铺那段的下标是线性的（`y[i]` / `pred[i]` / 本地 `out8[i]`），可被自动向量化；
 			 * 嵌套成「行指针 + 列下标」后每道的地址都要现算，实测这一段比平铺慢约 5%。
@@ -312,7 +312,7 @@ namespace clv
 			uint8_t out8[kBlockCoefs];
 			for (int i = 0; i < kBlockCoefs; ++i)
 			{
-				int32_t f = RoundResidual(y[i]);
+				int32_t f = RoundResidual(b[i]);
 				if (f < kResidualClampMin8) f = kResidualClampMin8;
 				if (f > kResidualClampMax8) f = kResidualClampMax8;
 				int32_t d = static_cast<int32_t>(pred[i]) + f;

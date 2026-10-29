@@ -1,8 +1,8 @@
 # assets/fixtures 素材溯源
 
 本目录里凡**来自仓库外**的素材，都在这里登记来源、整件 SHA-256、取用命令与工具版本。
-仓库内自制的 `.clv` 素材（`minimal.clv` / `neg_dts.clv` / `subtitle_ext4.clv`）由
-`scripts/gen_fixtures.py` 现场生成，冻结值见 `assets/README.md`「冻结值」一节（该表按当前实码校正，仅登记本轮实际变更，不保留非本轮历史更新记录及翻新/改写时间记录；作废的旧组值留痕不抹行），不在本文件范围内。
+仓库内自制的 `.clv` 素材（`minimal.clv` / `neg_dts.clv` / `subtitle_ext4.clv` / `subtitle_pipeline.clv`）由
+`scripts/gen_fixtures.py` 现场生成，冻结值见 `assets/README.md`「冻结值」一节（该表按当前实码校正，仅登记本版实际变更，不保留非本版历史更新记录及翻新/改写时间记录；作废的旧组值留痕不抹行），不在本文件范围内。
 
 ## 三支实拍示例视频（2026-10-10 入库）
 
@@ -158,3 +158,12 @@ q=64 → 271 476、q=96 → 200 558、q=127 → 162 264（32 帧窗口）。⇒ 
 
 读容器 / 抽帧：`ffmpeg` 与 `ffprobe`，`N-127054-g9d3f0f2c58-20261001`（GPL 静态构建，win64）。
 哈希：`sha256sum`（GNU coreutils）。
+
+
+## 三轨演示件 `demo_avs_360p_q32.clv`（2026-10-26）
+
+由 mtav 产出的双流中间件（本库编码/封装，配方同 `demo_av_1080p_q32.clv`，规格 640×360 / 30 fps / 90 帧 / q32，中间件不入库，
+音频取自 `sample-15s.flac` 前 3 s 的 16-bit PCM）与 `subtitle_pipeline.clv` 的字幕流合成。
+合成工具 `scripts/mux_avs.cpp` 只经公开 C ABI：读方逐包取出，写方把字幕流改成 `stream_id = 2`、
+`ext_type = 4` 样式块跟着改挂，再逐帧落回。字节数 5 717 545、CRC-32/MPEG-2 `F1FBA5ED`、
+SHA-256 前缀 `81f82111758c1d59`；冻结值同时登记在 `assets/README.md`。
